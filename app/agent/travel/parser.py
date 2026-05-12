@@ -44,7 +44,7 @@ async def parser_node(state: TravelPlanState) -> Dict[str, Any]:
         logger.info(f"解析结果: destination={params.destination}, days={params.days}, language={params.language}")
         return {"trip_params": params}
     except Exception as e:
-        logger.error(f"ParserAgent 失败: {e}", exc_info=True)
+        logger.exception("ParserAgent 失败: {}", repr(e))
         return {
             "trip_params": TripParams(destination="", start_date="", days=3, budget=3000.0),
             "errors": {"parser": str(e)},

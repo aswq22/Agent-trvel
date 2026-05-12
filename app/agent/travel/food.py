@@ -75,5 +75,5 @@ async def food_node(state: TravelPlanState) -> Dict[str, Any]:
         return {"foods": foods}
 
     except Exception as e:
-        logger.error(f"FoodAgent 失败: {e}", exc_info=True)
+        logger.exception("FoodAgent 失败: {}", repr(e))
         return {"foods": [], "errors": {"food": str(e)}}

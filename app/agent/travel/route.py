@@ -100,5 +100,5 @@ async def route_node(state: TravelPlanState) -> Dict[str, Any]:
         return {"route": route}
 
     except Exception as e:
-        logger.error(f"RouteAgent 失败: {e}", exc_info=True)
+        logger.exception("RouteAgent 失败: {}", repr(e))
         return {"route": {}, "errors": {"route": str(e)}}

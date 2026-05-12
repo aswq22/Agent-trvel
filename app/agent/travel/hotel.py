@@ -80,5 +80,5 @@ async def hotel_node(state: TravelPlanState) -> Dict[str, Any]:
         return {"hotels": hotels}
 
     except Exception as e:
-        logger.error(f"HotelAgent 失败: {e}", exc_info=True)
+        logger.exception("HotelAgent 失败: {}", repr(e))
         return {"hotels": [], "errors": {"hotel": str(e)}}

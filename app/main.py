@@ -15,9 +15,9 @@ from app.api import health, travel
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=" * 60)
-    logger.info(f"🚀 {config.app_name} v{config.app_version} 启动中...")
-    logger.info(f"🌐 监听地址: http://{config.host}:{config.port}")
-    logger.info(f"📚 API 文档: http://{config.host}:{config.port}/docs")
+    logger.info(f"{config.app_name} v{config.app_version} 启动中...")
+    logger.info(f"监听地址: http://{config.host}:{config.port}")
+    logger.info(f"API 文档: http://{config.host}:{config.port}/docs")
     logger.info("=" * 60)
     yield
     logger.info(f"👋 {config.app_name} 关闭")

@@ -81,7 +81,7 @@ async def strategy_node(state: TravelPlanState) -> Dict[str, Any]:
         logger.info(f"StrategyAgent 完成，攻略长度: {len(final_plan)} 字符")
         return {"final_plan": final_plan}
     except Exception as e:
-        logger.error(f"StrategyAgent 失败: {e}", exc_info=True)
+        logger.exception("StrategyAgent 失败: {}", repr(e))
         fallback = (f"攻略生成失败，以下是原始数据：\n{context}"
                     if lang == "zh" else f"Guide generation failed. Raw data:\n{context}")
         return {"final_plan": fallback, "errors": {"strategy": str(e)}}
