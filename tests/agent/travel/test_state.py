@@ -48,3 +48,14 @@ def test_travel_plan_state_typing():
         "messages": [],
     }
     assert state["user_input"] == "test"
+
+
+def test_travel_mcp_servers_config():
+    from app.config import config
+    servers = config.travel_mcp_servers
+    assert "gaode" in servers
+    assert "ctrip" in servers
+    assert "dianping" in servers
+    for s in servers.values():
+        assert "transport" in s
+        assert "url" in s
