@@ -32,7 +32,7 @@ _parser_prompt = ChatPromptTemplate.from_messages([
 
 async def _invoke_parser_chain(user_input: str) -> TripParams:
     """Build and execute parsing chain; extracted for testability."""
-    llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, temperature=0)
+    llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, base_url=config.dashscope_api_base, temperature=0)
     chain = _parser_prompt | llm.with_structured_output(TripParams)
     return await chain.ainvoke({"user_input": user_input})
 

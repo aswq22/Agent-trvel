@@ -25,9 +25,10 @@ class Settings(BaseSettings):
     port: int = 9900
 
     # DashScope 配置
-    dashscope_api_key: str = ""  # 默认空字符串，实际使用需从环境变量加载
+    dashscope_api_key: str = ""
+    dashscope_api_base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-max"
-    dashscope_embedding_model: str = "text-embedding-v4"  # v4 支持多种维度（默认 1024）
+    dashscope_embedding_model: str = "text-embedding-v4"
 
     # Milvus 配置
     milvus_host: str = "localhost"

@@ -75,7 +75,7 @@ async def strategy_node(state: TravelPlanState) -> Dict[str, Any]:
     prompt = context + ("\n\n请生成完整攻略：" if lang == "zh" else "\n\nPlease generate the complete travel guide:")
 
     try:
-        llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, temperature=0.3)
+        llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, base_url=config.dashscope_api_base, temperature=0.3)
         response = await llm.ainvoke([HumanMessage(content=system_prompt + "\n\n" + prompt)])
         final_plan = response.content if hasattr(response, "content") else str(response)
         logger.info(f"StrategyAgent 完成，攻略长度: {len(final_plan)} 字符")
