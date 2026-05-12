@@ -33,3 +33,19 @@ def test_trip_request_with_params():
     params = TripParams(destination="成都", budget=5000.0)
     req = TripRequest(trip_params=params)
     assert req.trip_params.destination == "成都"
+
+
+def test_travel_plan_endpoint_exists():
+    import sys
+    from unittest.mock import MagicMock
+
+    # Stub out problematic Milvus/numpy chain before importing app.main
+    for mod in ["pymilvus", "langchain_milvus", "langchain_milvus.function"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+    resp = client.post("/api/travel/plan", json={})
+    assert resp.status_code != 404
