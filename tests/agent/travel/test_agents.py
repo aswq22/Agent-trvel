@@ -167,3 +167,19 @@ async def test_strategy_agent_english_output():
         result = await strategy_node(state)
 
     assert "final_plan" in result
+
+
+@pytest.mark.asyncio
+async def test_graph_build():
+    from app.agent.travel.graph import build_travel_graph
+    graph = build_travel_graph()
+    assert graph is not None
+
+
+@pytest.mark.asyncio
+async def test_graph_initial_state_shape():
+    from app.agent.travel.graph import make_initial_state
+    state = make_initial_state("帮我规划成都3日游")
+    assert state["user_input"] == "帮我规划成都3日游"
+    assert state["attractions"] == []
+    assert state["errors"] == {}
