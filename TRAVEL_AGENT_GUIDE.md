@@ -1,4 +1,4 @@
-# 旅游多智能体系统 — 运行指南
+ # 旅游多智能体系统 — 运行指南
 
 ## 系统架构概览
 
@@ -21,6 +21,7 @@ POST /api/travel/plan → 用户
 ```
 
 ---
+
 
 ## 环境准备
 
@@ -69,14 +70,14 @@ python mcp_servers/dianping.py
 
 启动成功输出：
 ```
+INFO:     Uvicorn running on http://0.0.0.0:8012 (Press CTRL+C to quit)
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8012
 ```
 
 提供工具：
-- `dianping_attraction_search` — 景点搜索（成都5个景点 Mock）
-- `dianping_restaurant_search` — 餐厅搜索（成都5家餐厅 Mock）
-- `dianping_menu` — 餐厅菜单
+- `dianping_attraction_search` — 景点搜索（有 GAODE_API_KEY 则全国真实数据，否则成都 Mock）
+- `dianping_restaurant_search` — 餐厅搜索（有 GAODE_API_KEY 则全国真实数据，否则成都 Mock）
+- `dianping_menu` — 餐厅菜单（Mock 数据）
 
 ---
 
@@ -89,11 +90,12 @@ python mcp_servers/ctrip.py
 
 启动成功输出：
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8011
+INFO:     Uvicorn running on http://0.0.0.0:8011 (Press CTRL+C to quit)
+INFO:     Application startup complete.
 ```
 
 提供工具：
-- `ctrip_hotel_search` — 酒店搜索（成都4家酒店 Mock，280-1200元/晚）
+- `ctrip_hotel_search` — 酒店搜索（有 GAODE_API_KEY 则全国真实酒店，否则成都 Mock 4家）
 - `ctrip_hotel_detail` — 酒店详情
 
 ---
@@ -126,13 +128,16 @@ python -m app.main
 
 启动成功输出：
 ```
-============================================================
-🚀 SuperBizAgent v1.0.0 启动中...
-📝 环境: 开发
-🌐 监听地址: http://0.0.0.0:9900
-📚 API 文档: http://0.0.0.0:9900/docs
-⚠️  Milvus 连接失败（旅游功能不受影响）: ...   ← 正常，可忽略
-============================================================
+INFO:     TravelService 初始化完成
+INFO:     Uvicorn running on http://0.0.0.0:9900 (Press CTRL+C to quit)
+INFO:     Started reloader process [...] using WatchFiles
+INFO:     Started server process [...]
+INFO:     Application startup complete.
+2026-05-13 ... | INFO | main.lifespan | ============================================================
+2026-05-13 ... | INFO | main.lifespan | SuperBizAgent v1.0.0 启动中...
+2026-05-13 ... | INFO | main.lifespan | 监听地址: http://0.0.0.0:9900
+2026-05-13 ... | INFO | main.lifespan | API 文档: http://0.0.0.0:9900/docs
+2026-05-13 ... | INFO | main.lifespan | ============================================================
 ```
 
 ---
@@ -280,8 +285,11 @@ data: {"type": "complete", "final_plan": "# 成都5日游攻略\n\n## Day 1\n...
 ```bash
 cd D:/Agent/super_biz_agent
 
+# 首次需安装测试依赖（如未安装）
+uv pip install pytest pytest-asyncio pytest-cov
+
 # 运行所有旅游相关测试（不需要启动 MCP Server 或主服务）
-pytest tests/agent/travel/ tests/api/ -v
+uv run python -m pytest tests/agent/travel/ tests/api/ -v
 
 # 预期：23 passed
 ```
@@ -303,14 +311,14 @@ pytest tests/agent/travel/ tests/api/ -v
 
 ## 常见问题
 
-**Q: 启动提示 Milvus 连接失败？**
-> 正常现象，旅游功能不依赖 Milvus，忽略该警告即可。
+**Q: 请求返回 `{"type":"error","message":"规划出错:..."}` ？**
+> 最常见原因是 `DASHSCOPE_API_KEY` 无效（401）。请到 https://dashscope.aliyun.com 登录后获取正确的 API Key，格式为 `sk-xxxxxxxx`，填入 `.env`。
 
 **Q: 响应很慢？**
-> Agent 调用 Qwen 大模型进行推理，每次规划通常需要 30-90 秒（包含6个 Agent 串/并行执行）。
+> Agent 调用 Qwen 大模型进行推理，每次规划通常需要 30-90 秒（包含 6 个 Agent 串/并行执行）。
 
 **Q: 只有成都的数据？**
-> Mock 数据目前只包含成都。配置高德真实 API 后，景点搜索支持全国所有城市；酒店和美食的真实 API 接入方式见 `mcp_servers/ctrip.py` 和 `mcp_servers/dianping.py` 注释。
+> 无 GAODE_API_KEY 时使用 Mock 数据（仅成都）。配置高德 API 后支持全国所有城市。
 
 **Q: 如何接入真实携程/大众点评 API？**
-> 打开对应 MCP Server 文件，将 `_mock_hotels_db` / `_mock_attractions` 替换为真实 API 调用（httpx 请求）即可，工具接口签名无需改变。
+> 打开对应 MCP Server 文件，将 `_mock_hotels_db` / `_mock_attractions` 替换为真实 API 调用（httpx 请求）即可，工具接口签名无需改变。高德 POI 已内置真实数据，推荐优先使用。
