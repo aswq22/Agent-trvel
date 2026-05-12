@@ -1,10 +1,10 @@
 [project]
 name = "super-biz-agent-py"
 version = "1.2.1"
-description = "基于 LangChain 的智能业务代理系统 - 支持 RAG 知识库和 AIOps 智能运维"
+description = "基于 LangChain 的旅游多智能体规划系统"
 authors = [{name = "chief"}]
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
