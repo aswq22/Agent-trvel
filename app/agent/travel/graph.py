@@ -2,6 +2,7 @@
 from typing import List
 from langgraph.graph import StateGraph, END
 from langgraph.types import Send
+from langgraph.checkpoint.memory import MemorySaver
 from loguru import logger
 
 from app.agent.travel.state import TravelPlanState
@@ -51,7 +52,7 @@ def build_travel_graph():
     workflow.add_edge("food_agent", "strategy_agent")
     workflow.add_edge("strategy_agent", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=MemorySaver())
 
 
 def make_initial_state(user_input: str) -> TravelPlanState:
