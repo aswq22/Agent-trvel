@@ -1,0 +1,83 @@
+<h2>多 Agent 协作模式选择</h2>
+<p class="subtitle">五个专属 Agent：景点 / 路线 / 酒店 / 美食 / 攻略，它们如何协作？</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>顺序流水线</h3>
+      <p>Coordinator → 景点Agent → 路线Agent → 酒店Agent → 美食Agent → 攻略Agent</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>逻辑清晰，易于调试</li>
+            <li>后续 Agent 可利用前序结果</li>
+            <li>实现简单</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>缺点</h4>
+          <ul>
+            <li>耗时较长（串行等待）</li>
+            <li>单点失败影响全局</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>并行 + 汇总</h3>
+      <p>Coordinator 同时派发 → 景点/酒店/美食 并行执行 → 攻略Agent 汇总整合</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>速度快，多 Agent 并发</li>
+            <li>各 Agent 独立，容错性强</li>
+            <li>体现多智能体架构优势</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>缺点</h4>
+          <ul>
+            <li>酒店/路线依赖景点结果时需等待</li>
+            <li>协调逻辑稍复杂</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>分阶段混合</h3>
+      <p>阶段1：景点Agent（确定目的地） → 阶段2：路线/酒店/美食 并行 → 阶段3：攻略Agent 综合</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>兼顾依赖关系与并行效率</li>
+            <li>架构层次分明，演示效果最佳</li>
+            <li>可扩展性强</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>缺点</h4>
+          <ul>
+            <li>实现复杂度最高</li>
+            <li>需要 LangGraph 条件路由</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">💡 推荐 C：分阶段混合模式 — 景点结果是路线/酒店的前提，先串行再并行最合理，演示多智能体价值也最直观</p>

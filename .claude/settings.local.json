@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash *、)",
+      "Bash(Get-ChildItem *)",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__create_directory",
+      "mcp__filesystem__write_file",
+      "mcp__filesystem__read_text_file",
+      "Bash(python -m pytest tests/agent/travel/test_state.py -v)",
+      "Bash(python -m pytest tests/agent/travel/test_state.py -v --no-cov)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "mcp__filesystem__list_directory",
+      "Bash(python -m mypy app/agent/travel/state.py --no-error-summary)",
+      "Bash(python)",
+      "Bash(python -m pytest tests/agent/travel/test_state.py -v --tb=line)",
+      "Bash(pytest tests/agent/travel/test_state.py::test_travel_mcp_servers_config -v)",
+      "Bash(pytest tests/agent/travel/test_state.py -v)",
+      "Bash(git commit *)",
+      "Bash(python *)",
+      "Bash(D:/Agent/super_biz_agent/.venv/Scripts/python.exe *)",
+      "Bash(where uv *)",
+      "Bash(uv sync *)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; sys.path.insert\\(0, '.'\\); from mcp_servers import gaode_maps; print\\('gaode_maps OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; sys.path.insert\\(0, '.'\\); from mcp_servers import ctrip; print\\('ctrip OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; sys.path.insert\\(0, '.'\\); from mcp_servers import dianping; print\\('dianping OK'\\)\")",
+      "Bash(pytest --version)",
+      "Bash(uv pip *)",
+      "Bash(.venv/Scripts/python -m pytest --version)",
+      "Bash(.venv/Scripts/python -c \"import pytest_asyncio; print\\(pytest_asyncio.__version__\\)\")",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venv/Scripts/python.exe -m pip install pytest-asyncio)",
+      "Bash(uv --version)",
+      "Bash(uv add *)",
+      "Bash(git init *)",
+      "Bash(git -C D:/Agent/super_biz_agent diff eb4bbed..5a7c649)",
+      "Bash(pytest tests/agent/travel/ -v --tb=short)"
+    ]
+  }
+}

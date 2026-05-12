@@ -1,0 +1,63 @@
+<h2>三种多 Agent 架构方案</h2>
+<p class="subtitle">同样是分阶段混合模式，组织方式不同，选你最认可的</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>平铺节点图（Flat Graph）</h3>
+      <p style="font-family:monospace;font-size:0.85em;color:#aaa">
+        [用户] → [解析Agent] → [景点Agent]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[路线Agent] [酒店Agent] [美食Agent] ←并行<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[攻略Agent（汇总）]
+      </p>
+      <p>一个 LangGraph，所有 Agent 都是节点，用 Send() API 实现并行分发。改造成本最低，沿用现有代码结构。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>改动量最小</li><li>调试直观</li><li>LangGraph 原生支持</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>所有逻辑堆在一个图里</li><li>扩展新 Agent 需改主图</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Supervisor 模式</h3>
+      <p style="font-family:monospace;font-size:0.85em;color:#aaa">
+        [用户] → [Supervisor Agent]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↙ ↓ ↓ ↓ ↘<br>
+        &nbsp;&nbsp;&nbsp;[景点] [路线] [酒店] [美食] [攻略]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↖ ↑ ↑ ↑ ↗<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[Supervisor 整合输出]
+      </p>
+      <p>Supervisor LLM 决定调用哪个 Worker，动态路由。源自 LangGraph 官方 Supervisor 教程模式。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>动态决策，更智能</li><li>易插拔新 Worker</li><li>符合主流 Multi-Agent 范式</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>Supervisor 调用次数多，token 消耗大</li><li>调试路由逻辑较复杂</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>子图嵌套（Subgraph）⭐ 推荐</h3>
+      <p style="font-family:monospace;font-size:0.85em;color:#aaa">
+        主图: [解析] → [景点子图] → [并行子图组] → [攻略子图]<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↕<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[路线子图] [酒店子图] [美食子图]
+      </p>
+      <p>每个 Agent 是独立的 LangGraph 子图，各有自己的 State、工具和提示词。主图通过 Send() 并行调度子图。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>模块化最强，各 Agent 完全独立</li><li>每个子图可单独测试</li><li>最能展示多智能体架构深度</li><li>扩展新 Agent 无需改主图</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>实现工作量最大</li><li>State 跨子图传递需设计</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">💡 推荐 C：子图嵌套 — 每个 Agent 有独立生命周期，架构最清晰，最能体现多智能体系统的设计深度</p>

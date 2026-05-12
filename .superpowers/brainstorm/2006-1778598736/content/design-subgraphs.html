@@ -1,0 +1,75 @@
+<h2>各子图内部设计</h2>
+<p class="subtitle">每个 Agent 子图都遵循同一结构：工具调用 → LLM 推理 → 结构化输出</p>
+
+<div class="section">
+  <span class="label">统一子图模式（所有 Agent 共用）</span>
+  <div style="background:#0d1117;border-radius:10px;padding:1rem;margin-top:0.75rem;font-family:monospace;font-size:0.8em;color:#e6edf3;line-height:1.8;text-align:center">
+    <span style="color:#8b949e">[子图入口 State 切片]</span> → <span style="color:#ffa657">tool_node</span>（MCP 工具调用）→ <span style="color:#79c0ff">llm_node</span>（Qwen 推理）→ <span style="color:#3fb950">output_node</span>（结构化写回）
+  </div>
+</div>
+
+<div class="section" style="margin-top:1.25rem">
+  <span class="label">各 Agent 专属配置</span>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-top:0.75rem">
+
+    <div style="background:#0d1117;border:1px solid #42a5f5;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#90caf9;font-weight:bold;margin-bottom:0.5rem">🧩 ParserAgent（主图节点，非子图）</div>
+      <div style="color:#8b949e">输入：user_input (str)</div>
+      <div style="color:#8b949e">工具：无（纯 LLM 解析）</div>
+      <div style="color:#8b949e">输出：TripParams 结构体</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">提示词引导 LLM 从自然语言提取<br>destination / days / budget / preferences</div>
+    </div>
+
+    <div style="background:#0d1117;border:1px solid #42a5f5;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#90caf9;font-weight:bold;margin-bottom:0.5rem">🏛 AttractionAgent 子图</div>
+      <div style="color:#8b949e">输入：trip_params</div>
+      <div style="color:#56d364">工具：gaode_poi_search, dianping_attraction_search</div>
+      <div style="color:#8b949e">输出：attractions: List[Attraction]</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">按偏好筛选，输出景点名/评分/地址/推荐理由</div>
+    </div>
+
+    <div style="background:#0d1117;border:1px solid #66bb6a;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#a5d6a7;font-weight:bold;margin-bottom:0.5rem">🗺 RouteAgent 子图</div>
+      <div style="color:#8b949e">输入：trip_params + attractions</div>
+      <div style="color:#56d364">工具：gaode_route_plan, gaode_distance_matrix</div>
+      <div style="color:#8b949e">输出：route: RouteInfo（按天分组）</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">计算景点间距离，生成每日行程顺序和交通方式</div>
+    </div>
+
+    <div style="background:#0d1117;border:1px solid #ffa726;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#ffcc80;font-weight:bold;margin-bottom:0.5rem">🏨 HotelAgent 子图</div>
+      <div style="color:#8b949e">输入：trip_params + attractions（确定住宿区域）</div>
+      <div style="color:#56d364">工具：ctrip_hotel_search, ctrip_hotel_detail</div>
+      <div style="color:#8b949e">输出：hotels: List[Hotel]（含价格/评分/位置）</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">按预算和景点位置推荐，每晚提供 2-3 个选项</div>
+    </div>
+
+    <div style="background:#0d1117;border:1px solid #ec407a;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#f48fb1;font-weight:bold;margin-bottom:0.5rem">🍜 FoodAgent 子图</div>
+      <div style="color:#8b949e">输入：trip_params + attractions（按区域匹配）</div>
+      <div style="color:#56d364">工具：dianping_restaurant_search, dianping_menu</div>
+      <div style="color:#8b949e">输出：foods: List[Restaurant]（含特色菜/价位/位置）</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">按口味偏好和景点附近推荐早/午/晚餐</div>
+    </div>
+
+    <div style="background:#0d1117;border:1px solid #ab47bc;border-radius:8px;padding:0.9rem;font-size:0.8em">
+      <div style="color:#ce93d8;font-weight:bold;margin-bottom:0.5rem">📋 StrategyAgent 子图</div>
+      <div style="color:#8b949e">输入：全部 State（attractions + route + hotels + foods）</div>
+      <div style="color:#8b949e">工具：无（纯综合推理）</div>
+      <div style="color:#8b949e">输出：final_plan (str)，SSE 流式推送</div>
+      <div style="color:#555;margin-top:0.4rem;font-size:0.9em">按天生成完整攻略：早/午/晚行程 + 住宿 + 注意事项</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top:1.25rem">
+  <span class="label">错误处理策略</span>
+  <div style="background:#0d1117;border-radius:8px;padding:0.9rem;margin-top:0.75rem;font-size:0.82em;color:#e6edf3;line-height:1.7">
+    <span style="color:#ffa657">MCP 工具失败</span> → 子图内 retry 1次，仍失败则 LLM 用内置知识降级回答，不中断主流程<br>
+    <span style="color:#ffa657">并行子图失败</span> → 记录 error 字段到 State，StrategyAgent 在攻略中标注"该部分暂不可用"<br>
+    <span style="color:#ffa657">解析失败</span> → ParserAgent 返回默认 TripParams，提示用户补充信息
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.25rem">子图设计和错误处理策略合理吗？</p>

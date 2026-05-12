@@ -1,0 +1,74 @@
+<h2>旅游 Agent 系统架构</h2>
+<p class="subtitle">分阶段混合 · 子图嵌套 · 三个执行阶段</p>
+
+<div class="section">
+  <span class="label">整体数据流</span>
+
+  <div style="background:#1a1a2e;border-radius:12px;padding:1.5rem;font-family:monospace;font-size:0.82em;line-height:2;color:#e0e0e0;margin-top:0.75rem">
+
+    <div style="text-align:center;color:#64b5f6;font-weight:bold">[ 用户输入：自然语言 或 结构化表单 ]</div>
+    <div style="text-align:center;color:#666">↓</div>
+
+    <div style="border:1px solid #444;border-radius:8px;padding:0.6rem 1rem;margin:0.25rem 2rem;color:#fff176">
+      🧩 ParserAgent — 解析旅行意图，输出结构化参数<br>
+      <span style="color:#888;font-size:0.9em">目的地 · 出发日期 · 天数 · 人数 · 预算 · 偏好</span>
+    </div>
+
+    <div style="text-align:center;color:#666">↓ 阶段 1</div>
+
+    <div style="border:2px solid #42a5f5;border-radius:8px;padding:0.6rem 1rem;margin:0.25rem 2rem;color:#90caf9">
+      🏛 AttractionAgent 子图<br>
+      <span style="color:#888;font-size:0.9em">大众点评搜索 + 高德 POI → 推荐景点列表 + 优先级</span>
+    </div>
+
+    <div style="text-align:center;color:#666">↓ Send() 并行分发 · 阶段 2</div>
+
+    <div style="display:flex;gap:0.5rem;margin:0.25rem 0">
+      <div style="flex:1;border:2px solid #66bb6a;border-radius:8px;padding:0.5rem;text-align:center;color:#a5d6a7">
+        🗺 RouteAgent 子图<br>
+        <span style="color:#888;font-size:0.85em">高德路线规划<br>景点串联最优路径</span>
+      </div>
+      <div style="flex:1;border:2px solid #ffa726;border-radius:8px;padding:0.5rem;text-align:center;color:#ffcc80">
+        🏨 HotelAgent 子图<br>
+        <span style="color:#888;font-size:0.85em">携程酒店搜索<br>按预算/位置筛选</span>
+      </div>
+      <div style="flex:1;border:2px solid #ec407a;border-radius:8px;padding:0.5rem;text-align:center;color:#f48fb1">
+        🍜 FoodAgent 子图<br>
+        <span style="color:#888;font-size:0.85em">大众点评餐厅<br>按口味/区域推荐</span>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#666;margin-top:0.25rem">↓ 汇总所有结果 · 阶段 3</div>
+
+    <div style="border:2px solid #ab47bc;border-radius:8px;padding:0.6rem 1rem;margin:0.25rem 2rem;color:#ce93d8">
+      📋 StrategyAgent 子图<br>
+      <span style="color:#888;font-size:0.85em">整合景点 + 路线 + 酒店 + 美食 → 逐日游玩攻略（SSE 流式输出）</span>
+    </div>
+
+    <div style="text-align:center;color:#666">↓</div>
+    <div style="text-align:center;color:#80cbc4;font-weight:bold">[ 完整旅行攻略输出给用户 ]</div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:1.5rem">
+  <span class="label">API 层 & 外部集成</span>
+  <div style="display:flex;gap:1rem;margin-top:0.75rem;flex-wrap:wrap">
+    <div style="flex:1;min-width:160px;background:#1e2a1e;border-radius:8px;padding:0.75rem;font-size:0.85em">
+      <div style="color:#81c784;font-weight:bold">FastAPI 接口</div>
+      <div style="color:#aaa;margin-top:0.5rem">POST /api/travel/plan<br>(SSE 流式返回)</div>
+      <div style="color:#aaa">GET /api/travel/status</div>
+      <div style="color:#aaa">保留 /api/health</div>
+    </div>
+    <div style="flex:1;min-width:160px;background:#1a2030;border-radius:8px;padding:0.75rem;font-size:0.85em">
+      <div style="color:#64b5f6;font-weight:bold">MCP 工具层</div>
+      <div style="color:#aaa;margin-top:0.5rem">高德地图 MCP Server<br>携程 MCP Server<br>大众点评 MCP Server</div>
+      <div style="color:#555;font-size:0.9em">(沿用现有 MCP 架构)</div>
+    </div>
+    <div style="flex:1;min-width:160px;background:#201a20;border-radius:8px;padding:0.75rem;font-size:0.85em">
+      <div style="color:#ce93d8;font-weight:bold">LLM</div>
+      <div style="color:#aaa;margin-top:0.5rem">Qwen / QwQ (现有)<br>可通过 llm_factory<br>切换任意模型</div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem">这个架构看起来合理吗？有需要调整的地方请在终端告诉我</p>

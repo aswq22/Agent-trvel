@@ -1,0 +1,67 @@
+<h2>状态模型 & 目录结构</h2>
+<p class="subtitle">第二节：数据如何在 Agent 间流转，以及代码如何组织</p>
+
+<div class="section">
+  <span class="label">State 数据模型（跨 Agent 共享）</span>
+  <div style="background:#0d1117;border-radius:10px;padding:1.25rem;margin-top:0.75rem;font-family:monospace;font-size:0.8em;line-height:1.8;color:#e6edf3">
+<span style="color:#ff7b72">class</span> <span style="color:#79c0ff">TripParams</span>(<span style="color:#ffa657">BaseModel</span>):   <span style="color:#8b949e"># ParserAgent 输出</span>
+    destination: <span style="color:#79c0ff">str</span>
+    start_date: <span style="color:#79c0ff">str</span>
+    days: <span style="color:#79c0ff">int</span>
+    budget: <span style="color:#79c0ff">float</span>
+    preferences: <span style="color:#79c0ff">List[str]</span>   <span style="color:#8b949e"># ["历史文化", "美食", ...]</span>
+
+<span style="color:#ff7b72">class</span> <span style="color:#79c0ff">TravelPlanState</span>(<span style="color:#ffa657">TypedDict</span>):   <span style="color:#8b949e"># 主图共享 State</span>
+    user_input: <span style="color:#79c0ff">str</span>
+    trip_params: <span style="color:#79c0ff">TripParams</span>
+    attractions: <span style="color:#79c0ff">List[dict]</span>      <span style="color:#8b949e"># AttractionAgent 输出</span>
+    route: <span style="color:#79c0ff">dict</span>                  <span style="color:#8b949e"># RouteAgent 输出</span>
+    hotels: <span style="color:#79c0ff">List[dict]</span>           <span style="color:#8b949e"># HotelAgent 输出</span>
+    foods: <span style="color:#79c0ff">List[dict]</span>            <span style="color:#8b949e"># FoodAgent 输出</span>
+    final_plan: <span style="color:#79c0ff">str</span>              <span style="color:#8b949e"># StrategyAgent 输出（流式）</span>
+    messages: <span style="color:#ffa657">Annotated</span>[<span style="color:#79c0ff">List</span>, <span style="color:#79c0ff">add_messages</span>]
+  </div>
+</div>
+
+<div class="section" style="margin-top:1.5rem">
+  <span class="label">目录结构变更（保留 ✅ / 替换 🔄 / 新增 ➕）</span>
+  <div style="background:#0d1117;border-radius:10px;padding:1.25rem;margin-top:0.75rem;font-family:monospace;font-size:0.8em;line-height:1.9;color:#e6edf3">
+app/<br>
+├── <span style="color:#8b949e">config.py</span>              <span style="color:#3fb950">✅ 保留</span><br>
+├── <span style="color:#8b949e">main.py</span>                <span style="color:#3fb950">✅ 保留（路由挂载微调）</span><br>
+├── core/<br>
+│   ├── <span style="color:#8b949e">llm_factory.py</span>     <span style="color:#3fb950">✅ 保留</span><br>
+│   └── <span style="color:#8b949e">milvus_client.py</span>   <span style="color:#3fb950">✅ 保留（可选，不强依赖）</span><br>
+├── agent/<br>
+│   ├── <span style="color:#ffa657">aiops/</span>             <span style="color:#f85149">🔄 整个目录替换为 travel/</span><br>
+│   ├── <span style="color:#56d364">travel/</span>            <span style="color:#56d364">➕ 新目录</span><br>
+│   │   ├── <span style="color:#56d364">state.py</span>       <span style="color:#56d364">➕ TravelPlanState</span><br>
+│   │   ├── <span style="color:#56d364">graph.py</span>       <span style="color:#56d364">➕ 主编排图</span><br>
+│   │   ├── <span style="color:#56d364">parser.py</span>      <span style="color:#56d364">➕ ParserAgent</span><br>
+│   │   ├── <span style="color:#56d364">attraction.py</span>  <span style="color:#56d364">➕ AttractionAgent 子图</span><br>
+│   │   ├── <span style="color:#56d364">route.py</span>       <span style="color:#56d364">➕ RouteAgent 子图</span><br>
+│   │   ├── <span style="color:#56d364">hotel.py</span>       <span style="color:#56d364">➕ HotelAgent 子图</span><br>
+│   │   ├── <span style="color:#56d364">food.py</span>        <span style="color:#56d364">➕ FoodAgent 子图</span><br>
+│   │   └── <span style="color:#56d364">strategy.py</span>    <span style="color:#56d364">➕ StrategyAgent 子图</span><br>
+│   └── <span style="color:#8b949e">mcp_client.py</span>      <span style="color:#3fb950">✅ 保留</span><br>
+├── api/<br>
+│   ├── <span style="color:#ffa657">aiops.py</span>           <span style="color:#f85149">🔄 替换为 travel.py</span><br>
+│   ├── <span style="color:#56d364">travel.py</span>          <span style="color:#56d364">➕ POST /api/travel/plan（SSE）</span><br>
+│   ├── <span style="color:#8b949e">chat.py</span>            <span style="color:#3fb950">✅ 保留</span><br>
+│   ├── <span style="color:#8b949e">file.py</span>            <span style="color:#3fb950">✅ 保留</span><br>
+│   └── <span style="color:#8b949e">health.py</span>          <span style="color:#3fb950">✅ 保留</span><br>
+├── models/<br>
+│   ├── <span style="color:#ffa657">aiops.py</span>           <span style="color:#f85149">🔄 替换为 travel.py</span><br>
+│   └── <span style="color:#8b949e">request/response.py</span> <span style="color:#3fb950">✅ 保留</span><br>
+└── services/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span style="color:#f85149">aiops_service.py</span>   <span style="color:#f85149">🔄 替换为 travel_service.py</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;└── <span style="color:#8b949e">rag/vector 相关</span>    <span style="color:#3fb950">✅ 保留（可复用做旅游知识库）</span><br>
+mcp_servers/<br>
+├── <span style="color:#8b949e">（现有）</span><br>
+├── <span style="color:#56d364">gaode_maps.py</span>          <span style="color:#56d364">➕ 高德地图 MCP Server</span><br>
+├── <span style="color:#56d364">ctrip.py</span>               <span style="color:#56d364">➕ 携程 MCP Server</span><br>
+└── <span style="color:#56d364">dianping.py</span>            <span style="color:#56d364">➕ 大众点评 MCP Server</span>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1.25rem">这个 State 设计和目录结构合理吗？</p>
