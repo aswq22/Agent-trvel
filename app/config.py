@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Gaode Maps API
     gaode_api_key: str = ""
 
+    # 美团开放平台（企业资质，申请：https://open.meituan.com）
+    meituan_app_key: str = ""
+    meituan_app_secret: str = ""
+
     # Travel MCP server URLs
     mcp_gaode_url: str = "http://localhost:8010/mcp"
     mcp_ctrip_url: str = "http://localhost:8011/mcp"
