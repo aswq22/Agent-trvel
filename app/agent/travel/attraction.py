@@ -76,7 +76,7 @@ async def _run_react_loop(
 
 
 def _parse_json_list(text: str) -> List[dict]:
-    match = re.search(r"\[.*?\]", text, re.DOTALL)
+    match = re.search(r"\[.*\]", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())

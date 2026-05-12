@@ -67,8 +67,8 @@ async def hotel_node(state: TravelPlanState) -> Dict[str, Any]:
 
         prompt = _PROMPT[lang].format(
             destination=destination,
-            check_in=start_date or "待定",
-            check_out="待定",
+            check_in=start_date or ("待定" if lang == "zh" else "TBD"),
+            check_out=("待定" if lang == "zh" else "TBD"),
             days=days,
             hotel_budget=hotel_budget,
             areas=areas,
