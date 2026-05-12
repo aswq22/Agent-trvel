@@ -26,18 +26,23 @@ async def lifespan(app: FastAPI):
     logger.info(f"🌐 监听地址: http://{config.host}:{config.port}")
     logger.info(f"📚 API 文档: http://{config.host}:{config.port}/docs")
     
-    # 连接 Milvus
-    logger.info("🔌 正在连接 Milvus...")
-    milvus_manager.connect()
-    logger.info("✅ Milvus 连接成功")
-    
+    # 连接 Milvus（可选，旅游功能不依赖）
+    try:
+        logger.info("🔌 正在连接 Milvus...")
+        milvus_manager.connect()
+        logger.info("✅ Milvus 连接成功")
+    except Exception as e:
+        logger.warning(f"⚠️  Milvus 连接失败（旅游功能不受影响）: {e}")
+
     logger.info("=" * 60)
-    
+
     yield
-    
+
     # 关闭时执行
-    logger.info("🔌 正在关闭 Milvus 连接...")
-    milvus_manager.close()
+    try:
+        milvus_manager.close()
+    except Exception:
+        pass
     logger.info(f"👋 {config.app_name} 关闭")
 
 
