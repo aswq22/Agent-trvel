@@ -156,7 +156,18 @@ GET  /api/travel/share/{share_id}
   Response: { "plan": "...", "structured_plan": {...} }
 ```
 
-存储：后端内存 `dict`（`share_store: Dict[str, dict]`），重启失效，演示够用。
+存储：**SQLite + SQLAlchemy**，持久化到 `data/shares.db`，重启后链接仍有效。SQLAlchemy 已作为传递依赖存在，无需新增安装。
+
+表结构（`share_plans`）：
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | VARCHAR(36) PK | UUID4 |
+| plan | TEXT | Markdown 攻略 |
+| structured_plan | TEXT | JSON 字符串 |
+| created_at | DATETIME | 创建时间 |
+
+启动时自动 `create_all`，`data/` 目录不存在时自动创建。
 
 ### 前端行为
 
@@ -204,10 +215,11 @@ GET  /api/travel/share/{share_id}
 | `app/agent/travel/attraction.py` | state 中保留 `lng/lat` |
 | `app/agent/travel/hotel.py` | state 中保留 `lng/lat` |
 | `app/services/travel_service.py` | `complete` 事件透传 `structured_plan` |
+| `app/db/share_store.py` | 新增 SQLAlchemy 模型 + CRUD（SQLite） |
 | `app/api/travel.py` | 新增 `/share` POST/GET、`/map-key` GET |
 | `app/models/travel.py` | 新增 `ShareRequest` / `ShareResponse` |
 | `.env` | 新增 `AMAP_JS_KEY` |
-| `app/config.py` | 新增 `amap_js_key` 配置项 |
+| `app/config.py` | 新增 `amap_js_key`、`share_db_url` 配置项 |
 | `static/index.html` | 新增 travel-layout 两栏 HTML 结构 |
 | `static/app.js` | 重写旅游模式逻辑（表单/卡片/地图/分享） |
 | `static/styles.css` | 新增旅游布局、卡片、地图、打印样式 |
@@ -216,7 +228,6 @@ GET  /api/travel/share/{share_id}
 
 ## 不在本次范围内
 
-- 持久化分享链接（数据库）
 - 实时协作编辑
 - 多语言切换（en/zh 已由 ParserAgent 处理，前端不额外处理）
 - 移动端响应式（桌面优先）
