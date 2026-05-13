@@ -49,8 +49,8 @@ class LLMFactory:
         )
 
     @staticmethod
-    def create_travel_llm(temperature: float = 0) -> ChatOpenAI:
-        """旅游 Agent 专用 LLM。
+    def create_travel_llm(temperature: float = 0, streaming: bool = False) -> ChatOpenAI:
+        """通用 LLM（旅游 Agent + 聊天）。
 
         优先使用 DeepSeek（DEEPSEEK_API_KEY 非空时），
         否则 fallback 到 DashScope（DASHSCOPE_API_KEY）。
@@ -59,12 +59,12 @@ class LLMFactory:
         api_key  = config.travel_llm_api_key
         base_url = config.travel_llm_api_base
 
-        logger.info("旅游 LLM 初始化: model={} base={}", model, base_url.split("/")[2])
+        logger.info("LLM 初始化: model={} base={} streaming={}", model, base_url.split("/")[2], streaming)
 
         return ChatOpenAI(
             model=model,
             temperature=temperature,
-            streaming=False,        # 旅游 Agent 使用非流式（tool-call 模式）
+            streaming=streaming,
             base_url=base_url,
             api_key=api_key,
         )
