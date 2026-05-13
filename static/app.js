@@ -1145,12 +1145,122 @@ class TravelUI {
         alert(`规划失败：${msg}`);
     }
 
-    // Placeholder map methods (implemented in Task 9)
-    _clearMap() {}
-    _loadMap() { return Promise.resolve(); }
-    _addMarkers() {}
-    _renderMapFromStructured() {}
-    _highlightDay() {}
+    // ─── Amap Map ─────────────────────────────────────────────────────────────
+
+    async _loadMap() {
+        if (this.mapLoaded) return;
+        try {
+            const resp = await fetch('/api/travel/map-key');
+            if (!resp.ok) return;
+            const { key } = await resp.json();
+            if (!key) return;
+
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.Polyline`;
+                s.onload = resolve;
+                s.onerror = reject;
+                document.head.appendChild(s);
+            });
+
+            this.mapInstance = new window.AMap.Map('amapContainer', {
+                zoom: 11,
+                center: [104.065735, 30.659462],
+            });
+            this.mapLoaded = true;
+            if (this.mapPlaceholder) this.mapPlaceholder.style.display = 'none';
+        } catch (e) {
+            console.warn('[TravelUI] 地图加载失败:', e);
+        }
+    }
+
+    _clearMap() {
+        if (!this.mapInstance) return;
+        this.markers.forEach(m => m.setMap(null));
+        this.polylines.forEach(p => p.setMap(null));
+        this.markers = [];
+        this.polylines = [];
+    }
+
+    _addMarkers(items, type) {
+        if (!this.mapInstance || !window.AMap) return;
+        const imgBlue = 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png';
+        const imgRed  = 'https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png';
+        const imgUrl  = type === 'hotel' ? imgRed : imgBlue;
+
+        items.forEach(item => {
+            if (!item.lng || !item.lat) return;
+            const marker = new window.AMap.Marker({
+                position: [item.lng, item.lat],
+                title: item.name || '',
+                map: this.mapInstance,
+                icon: new window.AMap.Icon({
+                    image: imgUrl,
+                    size: new window.AMap.Size(19, 31),
+                    imageSize: new window.AMap.Size(19, 31),
+                }),
+            });
+            const label = type === 'hotel' ? `🏨 ${item.name}` : `🏛️ ${item.name}`;
+            const info = new window.AMap.InfoWindow({
+                content: `<div style="padding:6px 10px;font-size:13px">${label}</div>`,
+                offset: new window.AMap.Pixel(0, -30),
+            });
+            marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
+            this.markers.push(marker);
+        });
+    }
+
+    _renderMapFromStructured(structured) {
+        if (!this.mapInstance || !window.AMap || !structured?.days) return;
+
+        const COLORS = ['#4A90E2', '#E2574A', '#50C878', '#FF8C00', '#9B59B6', '#1ABC9C', '#F39C12'];
+        const allLngLat = [];
+
+        structured.days.forEach((day, idx) => {
+            const pts = [];
+            (day.attractions || []).forEach(a => {
+                if (a.lng && a.lat) { pts.push([a.lng, a.lat]); allLngLat.push([a.lng, a.lat]); }
+            });
+            if (day.hotel?.lng && day.hotel?.lat) {
+                pts.push([day.hotel.lng, day.hotel.lat]);
+                allLngLat.push([day.hotel.lng, day.hotel.lat]);
+                this._addMarkers([day.hotel], 'hotel');
+            }
+            if (pts.length > 1) {
+                const poly = new window.AMap.Polyline({
+                    path: pts.map(p => new window.AMap.LngLat(p[0], p[1])),
+                    strokeColor: COLORS[idx % COLORS.length],
+                    strokeWeight: 3,
+                    strokeOpacity: 0.9,
+                    map: this.mapInstance,
+                });
+                this.polylines.push(poly);
+            }
+        });
+
+        if (allLngLat.length) {
+            const lngs = allLngLat.map(p => p[0]);
+            const lats = allLngLat.map(p => p[1]);
+            this.mapInstance.setBounds(new window.AMap.Bounds(
+                new window.AMap.LngLat(Math.min(...lngs), Math.min(...lats)),
+                new window.AMap.LngLat(Math.max(...lngs), Math.max(...lats)),
+            ));
+        }
+    }
+
+    _highlightDay(dayNum) {
+        if (!this.polylines.length) return;
+        this.polylines.forEach((poly, idx) => {
+            const isSelected = idx + 1 === dayNum;
+            poly.setOptions({
+                strokeOpacity: isSelected ? 1 : 0.2,
+                strokeWeight: isSelected ? 5 : 2,
+            });
+        });
+        document.querySelectorAll('.day-card').forEach(card => {
+            card.classList.toggle('highlight', parseInt(card.dataset.day) === dayNum);
+        });
+    }
 
     // Placeholder share methods (implemented in Task 10)
     _generateShareLink() {}
