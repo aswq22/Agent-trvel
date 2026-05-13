@@ -743,6 +743,35 @@ uv run pytest tests/agent/travel/ tests/api/ tests/db/ -v
 
 ## 11. 变更记录
 
+### v1.2.6 — 2026-05-13 | 坐标稳定性修复
+
+**修复：美食/酒店/景点在地图上不稳定出现、某些天路线缺失**
+
+**根因：** LLM 不能稳定从 MCP 响应中提取 `lng/lat` 字段。
+
+**双重保障方案：**
+
+1. **后端坐标补全**（新文件 `app/agent/travel/geo_utils.py`）：
+   - Agent 解析 LLM JSON 后，对所有缺失坐标的条目调用高德 REST POI 搜索 API 补全
+   - 并发执行（`asyncio.gather`），按名称搜索，超时 5 秒
+   - 三个 Agent 均使用：`attraction_node`、`hotel_node`、`food_node`
+
+2. **前端坐标补全**（`_geocodeMissing`）：
+   - 地图加载后，对仍缺坐标的条目用 `AMap.PlaceSearch` 搜索
+   - 补全后增量添加标注（不清除已有标注）
+
+3. **路线降级保障**（`_drawFallbackPolyline`）：
+   - Driving API 失败或超时（7秒）→ 自动降级为虚线折线（直线连接各景点）
+   - 确保每天的路线都有视觉呈现
+
+**文件变更：**
+- `app/agent/travel/geo_utils.py` — 新建，`fill_coordinates()` 并发补全坐标
+- `app/agent/travel/attraction.py` / `hotel.py` / `food.py` — 调用 `fill_coordinates`
+- `static/app.js` — `_geocodeMissingAndPlan()`、`_addMissingMarkers()`、`_drawFallbackPolyline()`
+- `tests/agent/travel/test_geo_utils.py` — 5 个单元测试
+
+---
+
 ### v1.2.5 — 2026-05-13 | 智能路线规划 + 天气信息
 
 **新增功能：**
