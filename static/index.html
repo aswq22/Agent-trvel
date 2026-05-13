@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能OnCall助手</title>
+    <title>智能旅游助手</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <!-- Markdown 渲染库 -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <!-- 代码高亮库（可选） -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/es/highlight.min.js"></script>
 </head>
@@ -16,9 +14,9 @@
         <!-- 左侧边栏 -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h2 class="sidebar-title">智能OnCall助手</h2>
+                <h2 class="sidebar-title">智能旅游助手</h2>
             </div>
-            
+
             <div class="sidebar-content">
                 <button class="new-chat-btn" id="newChatBtn">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -26,40 +24,58 @@
                     </svg>
                     <span>新建对话</span>
                 </button>
-                
+
+                <!-- 应用模式切换 -->
+                <div class="app-mode-tabs">
+                    <button class="app-mode-tab active" id="chatModeTab" data-app-mode="chat"
+                            onclick="window.__app && window.__app.switchAppMode('chat')">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        聊天
+                    </button>
+                    <button class="app-mode-tab" id="travelModeTab" data-app-mode="travel"
+                            onclick="window.__app && window.__app.switchAppMode('travel')">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21 4 19.5 2.5c-1.5-1.5-3.5-1.5-5 0L11 6 2.8 4.2c-.5-.1-.9.1-1.1.5L.3 8.3c-.2.4-.1.9.3 1.1L6 12l-2 3H1l-1 2 3 3 2-1v-3l3-2 3.3 5.4c.2.4.7.5 1.1.3l3.6-1.4c.4-.2.6-.6.5-1.1z"
+                                  fill="currentColor"/>
+                        </svg>
+                        旅游规划
+                    </button>
+                </div>
+
                 <div class="chat-history-section">
                     <div class="history-header">
                         <span>近期对话</span>
                     </div>
                     <div class="chat-history-list" id="chatHistoryList">
-                        <!-- 历史对话列表将在这里动态生成 -->
                     </div>
                 </div>
-                
             </div>
         </aside>
 
         <!-- 主内容区域 -->
         <main class="main-content">
-            <button class="ai-ops-top-btn" id="aiOpsSidebarBtn">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span>AI Ops</span>
-            </button>
+            <!-- 当前模式提示标签 (右上角) -->
+            <div class="current-mode-badge" id="currentModeBadge">
+                <span id="currentModeBadgeText">聊天模式</span>
+            </div>
+
             <div class="chat-container">
                 <div class="welcome-greeting" id="welcomeGreeting">
-                    <p>你好！我是智能Oncall小助手</p>
+                    <p id="welcomeText">你好！我是智能旅游助手</p>
+                    <p class="welcome-sub" id="welcomeSub">可以跟我聊天，也可以切换到「旅游规划」制作专属攻略</p>
                 </div>
                 <div class="chat-messages" id="chatMessages">
                 </div>
-                
+
                 <div class="chat-input-container">
                     <div class="input-group-wrapper">
                         <div class="input-wrapper">
-                            <input type="text" id="messageInput" placeholder="问问智能OnCall助手" maxlength="1000" class="message-input">
+                            <input type="text" id="messageInput"
+                                   placeholder="问问智能旅游助手..."
+                                   maxlength="2000" class="message-input">
                             <div class="input-bottom-bar">
                                 <div class="tools-btn-wrapper">
                                     <button class="tools-btn" id="toolsBtn" title="更多选项">
@@ -72,14 +88,16 @@
                                     <div class="tools-menu" id="toolsMenu">
                                         <div class="tools-menu-item" id="uploadFileItem">
                                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                                                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                             </svg>
                                             <span>上传文件</span>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="right-actions">
-                                    <div class="mode-selector-wrapper">
+                                    <!-- 聊天子模式选择器（旅游规划模式下隐藏） -->
+                                    <div class="mode-selector-wrapper" id="chatSubModeWrapper">
                                         <button class="mode-selector-btn" id="modeSelectorBtn">
                                             <span id="currentModeText">快速</span>
                                             <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -87,25 +105,25 @@
                                             </svg>
                                         </button>
                                         <div class="mode-dropdown" id="modeDropdown">
-                                            <div class="dropdown-header">选择对话方式</div>
+                                            <div class="dropdown-header">对话方式</div>
                                             <div class="dropdown-item active" data-mode="quick">
                                                 <div class="dropdown-item-main">
                                                     <span>快速</span>
-                                                    <span class="badge-new">新</span>
                                                 </div>
-                                                <div class="dropdown-item-sub">快速对话</div>
+                                                <div class="dropdown-item-sub">非流式，响应快</div>
                                             </div>
                                             <div class="dropdown-item" data-mode="stream">
                                                 <div class="dropdown-item-main">
                                                     <span>流式</span>
                                                 </div>
-                                                <div class="dropdown-item-sub">流式对话</div>
+                                                <div class="dropdown-item-sub">实时流式输出</div>
                                             </div>
                                         </div>
                                     </div>
                                     <button class="send-btn-circle" id="sendButton" title="发送">
                                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"
+                                                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                         </svg>
                                     </button>
                                 </div>
@@ -115,18 +133,136 @@
                     <input type="file" id="fileInput" accept=".txt,.md,.markdown" style="display: none;">
                 </div>
             </div>
+            <!-- ═══ Travel Layout (显示在旅游规划 Tab) ══════════════════════ -->
+            <div class="travel-layout" id="travelLayout">
+                <!-- 工具栏 -->
+                <div class="travel-toolbar" id="travelToolbar">
+                    <span class="toolbar-title" id="travelDestTitle">旅游规划工作台</span>
+                    <div class="toolbar-actions">
+                        <button class="toolbar-btn" id="printPlanBtn" style="display:none">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <polyline points="6 9 6 2 18 2 18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <rect x="6" y="14" width="12" height="8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            打印 PDF
+                        </button>
+                        <button class="toolbar-btn toolbar-btn-primary" id="sharePlanBtn" style="display:none">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <circle cx="18" cy="5" r="3" stroke="currentColor" stroke-width="2"/>
+                                <circle cx="6" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                                <circle cx="18" cy="19" r="3" stroke="currentColor" stroke-width="2"/>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" stroke-width="2"/>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" stroke-width="2"/>
+                            </svg>
+                            生成分享链接
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 两栏主体 -->
+                <div class="travel-body">
+                    <!-- 左栏 -->
+                    <div class="travel-left-panel">
+
+                        <!-- 表单 -->
+                        <div class="travel-form" id="travelForm">
+                            <div class="form-group">
+                                <label class="form-label">目的地 <span class="required">*</span></label>
+                                <input type="text" id="destInput" class="form-input" placeholder="如：成都、杭州、京都">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">出发日期</label>
+                                    <input type="date" id="startDateInput" class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">天数</label>
+                                    <input type="number" id="daysInput" class="form-input" value="3" min="1" max="14">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">人数</label>
+                                    <input type="number" id="numPeopleInput" class="form-input" value="2" min="1" max="10">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">预算（元）</label>
+                                    <input type="number" id="budgetInput" class="form-input" value="3000" min="100" step="100">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">偏好标签</label>
+                                <div class="pref-tags" id="prefTags">
+                                    <button class="pref-tag" data-pref="美食">美食</button>
+                                    <button class="pref-tag" data-pref="历史">历史</button>
+                                    <button class="pref-tag" data-pref="自然">自然</button>
+                                    <button class="pref-tag" data-pref="亲子">亲子</button>
+                                    <button class="pref-tag" data-pref="摄影">摄影</button>
+                                    <button class="pref-tag" data-pref="购物">购物</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">直接描述（可选）</label>
+                                <textarea id="travelDescInput" class="form-textarea"
+                                    placeholder="如：帮我规划一个轻松的成都美食之旅，偏好小众景点" rows="3"></textarea>
+                            </div>
+                            <button class="travel-submit-btn" id="travelSubmitBtn" disabled>
+                                开始规划 →
+                            </button>
+                        </div>
+
+                        <!-- 进度 -->
+                        <div class="travel-progress" id="travelProgress" style="display:none">
+                            <h3 class="progress-title">正在为您规划...</h3>
+                            <div class="progress-stages" id="progressStages"></div>
+                        </div>
+
+                        <!-- 结果卡片 -->
+                        <div class="travel-result" id="travelResult" style="display:none">
+                            <div class="day-cards" id="dayCards"></div>
+                            <div class="cost-summary" id="costSummary"></div>
+                            <button class="replan-btn" id="replanBtn">重新规划</button>
+                        </div>
+
+                    </div>
+
+                    <!-- 右栏：地图 -->
+                    <div class="travel-right-panel map-panel" id="mapPanel">
+                        <div id="amapContainer" style="width:100%;height:100%"></div>
+                        <div class="map-placeholder" id="mapPlaceholder">
+                            <div class="map-placeholder-icon">🗺️</div>
+                            <p>规划完成后，地图将标注景点与路线</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- ═══ End Travel Layout ══════════════════════════════════════ -->
         </main>
+    </div>
+
+    <!-- 分享弹窗 -->
+    <div class="share-modal-overlay" id="shareModalOverlay" style="display:none">
+        <div class="share-modal">
+            <h3 class="share-modal-title">分享链接</h3>
+            <p class="share-modal-desc">任何人打开此链接即可查看攻略</p>
+            <div class="share-url-row">
+                <input type="text" id="shareUrlInput" class="share-url-input" readonly>
+                <button class="copy-btn" id="copyShareUrlBtn">复制</button>
+            </div>
+            <button class="share-modal-close" id="shareModalClose">关闭</button>
+        </div>
     </div>
 
     <!-- 加载遮罩层 -->
     <div id="loadingOverlay" class="loading-overlay">
         <div class="loading-content">
             <div class="loading-spinner"></div>
-            <div class="loading-text">智能运维分析中，请稍候...</div>
+            <div class="loading-text">处理中，请稍候...</div>
             <div class="loading-subtext">后端正在处理，请耐心等待</div>
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>
