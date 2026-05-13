@@ -1,6 +1,7 @@
 // 智能旅游助手 — 双模式前端
 class SuperBizAgentApp {
     constructor() {
+        this.travelUI = new TravelUI(this);
         this.apiBaseUrl = '/api';
         this.appMode = 'chat';       // 'chat' | 'travel'
         this.currentMode = 'quick';  // chat 子模式：'quick' | 'stream'
@@ -153,7 +154,22 @@ class SuperBizAgentApp {
         document.querySelectorAll('.app-mode-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.appMode === mode);
         });
-        this.updateUI();
+
+        const travelLayout = document.getElementById('travelLayout');
+        const chatContainer = document.querySelector('.chat-container');
+        const modeBadge = document.getElementById('currentModeBadge');
+
+        if (mode === 'travel') {
+            if (chatContainer) chatContainer.style.display = 'none';
+            if (travelLayout) travelLayout.classList.add('visible');
+            if (modeBadge) modeBadge.style.display = 'none';
+        } else {
+            if (chatContainer) chatContainer.style.display = '';
+            if (travelLayout) travelLayout.classList.remove('visible');
+            if (modeBadge) modeBadge.style.display = '';
+            this.updateUI();
+        }
+
         const label = mode === 'travel' ? '旅游规划模式' : '聊天模式';
         this.showNotification(`已切换到${label}`, 'info');
     }
@@ -1262,10 +1278,77 @@ class TravelUI {
         });
     }
 
-    // Placeholder share methods (implemented in Task 10)
-    _generateShareLink() {}
-    _copyShareUrl() {}
-    _closeShareModal() {}
+    // ─── Share & Export ───────────────────────────────────────────────────────
+
+    async _generateShareLink() {
+        if (!this.currentPlan && !this.currentStructured) return;
+        try {
+            const resp = await fetch('/api/travel/share', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    plan: this.currentPlan || '',
+                    structured_plan: this.currentStructured || {},
+                }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (this.shareUrlInput) this.shareUrlInput.value = data.url;
+            if (this.shareOverlay) this.shareOverlay.style.display = 'flex';
+        } catch (e) {
+            alert('生成分享链接失败：' + e.message);
+        }
+    }
+
+    async _copyShareUrl() {
+        const url = this.shareUrlInput?.value;
+        if (!url) return;
+        try {
+            await navigator.clipboard.writeText(url);
+            if (this.copyBtn) {
+                this.copyBtn.textContent = '已复制 ✓';
+                setTimeout(() => { if (this.copyBtn) this.copyBtn.textContent = '复制'; }, 2000);
+            }
+        } catch (_) {
+            this.shareUrlInput?.select();
+        }
+    }
+
+    _closeShareModal() {
+        if (this.shareOverlay) this.shareOverlay.style.display = 'none';
+    }
+
+    async loadSharedPlan(shareId) {
+        try {
+            const resp = await fetch(`/api/travel/share/${encodeURIComponent(shareId)}`);
+            if (!resp.ok) throw new Error('分享链接不存在或已失效');
+            const data = await resp.json();
+            this.currentPlan = data.plan;
+            this.currentStructured = data.structured_plan;
+
+            if (this.form) this.form.style.display = 'none';
+            const toolbar = document.getElementById('travelToolbar');
+            if (toolbar) toolbar.style.display = 'none';
+
+            this._showResult(this.currentStructured);
+            await this._loadMap();
+            if (this.currentStructured) this._renderMapFromStructured(this.currentStructured);
+
+            const dest = this.currentStructured?.days?.[0]?.attractions?.[0]?.name || '共享攻略';
+            if (this.destTitle) this.destTitle.textContent = dest;
+        } catch (e) {
+            alert(e.message);
+        }
+    }
 }
 
-document.addEventListener('DOMContentLoaded', () => { window.__app = new SuperBizAgentApp(); });
+document.addEventListener('DOMContentLoaded', () => {
+    const app = new SuperBizAgentApp();
+    window.__app = app;
+
+    const shareId = new URLSearchParams(window.location.search).get('share');
+    if (shareId) {
+        app.switchAppMode('travel');
+        app.travelUI.loadSharedPlan(shareId);
+    }
+});
