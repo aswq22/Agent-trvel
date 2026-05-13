@@ -65,6 +65,83 @@ def _build_context(state: TravelPlanState, lang: str) -> str:
     return ctx
 
 
+def _build_structured_plan(state: TravelPlanState) -> dict:
+    """Assemble structured day-by-day plan from state data (no extra LLM call)."""
+    trip = state.get("trip_params")
+    if not trip:
+        return {}
+
+    days_count = trip.days
+    attractions = state.get("attractions") or []
+    hotels = state.get("hotels") or []
+    food_list = state.get("foods") or []
+    budget = trip.budget
+    start_date = trip.start_date
+
+    per_day_attr = max(1, (len(attractions) + days_count - 1) // days_count)
+    per_day_food = max(2, (len(food_list) + days_count - 1) // days_count)
+
+    days = []
+    for i in range(1, days_count + 1):
+        if start_date:
+            try:
+                from datetime import datetime, timedelta
+                base = datetime.strptime(start_date, "%Y-%m-%d")
+                day_date = (base + timedelta(days=i - 1)).strftime("%Y-%m-%d")
+            except ValueError:
+                day_date = f"第{i}天"
+        else:
+            day_date = f"第{i}天"
+
+        day_attr_raw = attractions[(i - 1) * per_day_attr: i * per_day_attr]
+        day_attractions = []
+        for a in day_attr_raw:
+            highlights = a.get("highlights", "")
+            tip = highlights[0] if isinstance(highlights, list) and highlights else str(highlights)
+            entry: dict = {"name": a.get("name", ""), "duration": "2h", "tip": tip}
+            if a.get("lng"):
+                entry["lng"] = a["lng"]
+            if a.get("lat"):
+                entry["lat"] = a["lat"]
+            day_attractions.append(entry)
+
+        hotel_raw = hotels[0] if hotels else {}
+        day_hotel: dict = {
+            "name": hotel_raw.get("name", ""),
+            "price_per_night": hotel_raw.get("price_per_night", 0),
+        }
+        if hotel_raw.get("lng"):
+            day_hotel["lng"] = hotel_raw["lng"]
+        if hotel_raw.get("lat"):
+            day_hotel["lat"] = hotel_raw["lat"]
+
+        meal_type_map = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}
+        day_foods_raw = food_list[(i - 1) * per_day_food: i * per_day_food]
+        meals = [
+            {
+                "type": meal_type_map.get(f.get("meal_type", "lunch"), f.get("meal_type", "午餐")),
+                "name": f.get("name", ""),
+                "price": f.get("avg_price_per_person", 80),
+            }
+            for f in day_foods_raw
+        ]
+
+        days.append({
+            "day": i,
+            "date": day_date,
+            "attractions": day_attractions,
+            "hotel": day_hotel,
+            "meals": meals,
+            "estimated_cost": round(budget / days_count),
+        })
+
+    return {
+        "days": days,
+        "total_cost": budget,
+        "tips": ["提前预订热门景点门票", "注意当地天气变化", "保留部分应急资金"],
+    }
+
+
 async def strategy_node(state: TravelPlanState) -> Dict[str, Any]:
     logger.info("=== StrategyAgent：生成完整攻略 ===")
     trip = state["trip_params"]
@@ -79,9 +156,12 @@ async def strategy_node(state: TravelPlanState) -> Dict[str, Any]:
         response = await llm.ainvoke([HumanMessage(content=system_prompt + "\n\n" + prompt)])
         final_plan = response.content if hasattr(response, "content") else str(response)
         logger.info(f"StrategyAgent 完成，攻略长度: {len(final_plan)} 字符")
-        return {"final_plan": final_plan}
+        structured = _build_structured_plan(state)
+        logger.info(f"StrategyAgent 生成 structured_plan，共 {len(structured.get('days', []))} 天")
+        return {"final_plan": final_plan, "structured_plan": structured}
     except Exception as e:
         logger.exception("StrategyAgent 失败: {}", repr(e))
         fallback = (f"攻略生成失败，以下是原始数据：\n{context}"
                     if lang == "zh" else f"Guide generation failed. Raw data:\n{context}")
-        return {"final_plan": fallback, "errors": {"strategy": str(e)}}
+        structured = _build_structured_plan(state)
+        return {"final_plan": fallback, "structured_plan": structured, "errors": {"strategy": str(e)}}
