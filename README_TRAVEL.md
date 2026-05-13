@@ -743,6 +743,38 @@ uv run pytest tests/agent/travel/ tests/api/ tests/db/ -v
 
 ## 11. 变更记录
 
+### v1.2.5 — 2026-05-13 | 智能路线规划 + 天气信息
+
+**新增功能：**
+
+1. **智能交通方式推荐**（每段路程自动判断）：
+   - `< 1.5km` → 步行（绿色，估算步行分钟数）
+   - `1.5–4km` → 骑行（蓝色，估算骑行分钟数）
+   - `4–30km` → 查询高德 Transfer API：有地铁则显示「乘地铁」，无则「乘公交」
+   - `> 30km` 或无公共交通 → 打车（黄色）
+
+2. **实际道路路线渲染**：调用高德 Driving API 以实际道路路径替代直线折线，每天用不同颜色区分，路线按「酒店出发 → 各景点 → 返回酒店」规划
+
+3. **天气组件**：地图左上角半透明卡片，显示：
+   - 实时天气（温度/天气状况/风向风力/湿度）
+   - 3 天预报（星期/天气图标/温度范围）
+   - 数据来源：高德 `AMap.Weather` 插件（依赖 `AMAP_JS_KEY`）
+
+**加载的 Amap 插件**（在 `_loadMap()` URL 中）：
+`AMap.Polyline, AMap.Driving, AMap.Transfer, AMap.Walking, AMap.Cycling, AMap.Weather`
+
+**关键方法：**
+- `_fetchWeather(city)` — 获取实时天气 + 3 日预报
+- `_planDayRoutes(structured, city)` — 对所有天异步规划路线
+- `_resolveTransport(seg, city)` — 单段智能选择交通方式
+- `_queryTransit(seg, city)` — 查询 Transfer API 是否有地铁
+- `_renderActualRoute(waypoints, color)` — Driving API 获取道路路径并渲染
+- `_updateDayCardRoute(dayNum, waypoints, modes)` — 更新日程卡片路线信息
+
+**文件：** `static/app.js`, `static/styles.css`, `static/index.html`
+
+---
+
 ### v1.2.4 — 2026-05-13 | 美食表格 + 地图标注全面升级
 
 **新增：**
