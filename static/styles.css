@@ -1760,7 +1760,7 @@ body {
 
 /* ═══ 打印样式 ══════════════════════════════════════════ */
 
-/* ═══ 酒店选项区块 ═══════════════════════════════════════ */
+/* ═══ 通用区块标题 ═══════════════════════════════════════ */
 
 .section-title {
     font-size: 13px;
@@ -1769,11 +1769,20 @@ body {
     margin-bottom: 10px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
+.section-sub {
+    font-weight: 400;
+    color: #80868b;
+    font-size: 12px;
+    margin-left: 4px;
+}
+
+/* ═══ 酒店推荐区块 ═══════════════════════════════════════ */
+
 .hotel-options-section {
-    padding: 16px 20px 8px;
+    padding: 16px 20px 12px;
     border-bottom: 1px solid #f1f3f4;
 }
 
@@ -1784,44 +1793,82 @@ body {
 }
 
 .hotel-option-card {
-    border: 1px solid #dadce0;
-    border-radius: 10px;
+    border: 1.5px solid #dadce0;
+    border-radius: 12px;
     padding: 12px 14px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+    background: #fff;
 }
 
-.hotel-option-card:hover { border-color: #1a73e8; background: #f8fbff; }
+.hotel-option-card:hover {
+    border-color: #1a73e8;
+    background: #f8fbff;
+    box-shadow: 0 2px 8px rgba(26,115,232,0.12);
+}
 
 .hotel-option-card.selected {
     border-color: #1a73e8;
     background: #e8f0fe;
+    box-shadow: 0 2px 12px rgba(26,115,232,0.18);
+}
+
+.hotel-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
 }
 
 .hotel-option-name {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     color: #202124;
+}
+
+.hotel-price {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a73e8;
+    white-space: nowrap;
+}
+
+.hotel-price-unit {
+    font-size: 12px;
+    font-weight: 400;
+    color: #80868b;
+}
+
+.hotel-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-bottom: 4px;
 }
 
-.hotel-option-meta {
+.hotel-stars { display: flex; align-items: center; gap: 1px; }
+
+.hotel-rating {
     font-size: 12px;
-    color: #1a73e8;
-    margin-bottom: 4px;
+    color: #F59E0B;
+    font-weight: 500;
 }
 
 .hotel-option-addr {
     font-size: 12px;
     color: #80868b;
     margin-bottom: 4px;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
 }
 
 .hotel-option-reason {
     font-size: 12px;
     color: #5f6368;
     font-style: italic;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    line-height: 1.5;
 }
 
 .hotel-option-tags {
@@ -1835,7 +1882,7 @@ body {
     background: #f1f3f4;
     border-radius: 10px;
     font-size: 11px;
-    color: #3c4043;
+    color: #5f6368;
 }
 
 /* ═══ 景点列表（新版）══════════════════════════════════════ */
@@ -1903,86 +1950,139 @@ body {
     word-break: break-all;
 }
 
-/* ═══ 美食推荐区块 ══════════════════════════════════════════ */
+/* ═══ 美食推荐表格 ══════════════════════════════════════════ */
 
-.food-recommend-section {
+.food-table-section {
     padding: 16px 20px;
     border-top: 1px solid #dadce0;
     margin-top: 8px;
 }
 
-.food-map-toggle {
-    margin-left: auto;
-    padding: 4px 12px;
-    border: 1px solid #1a73e8;
-    border-radius: 12px;
+.food-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.food-sort-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border: 1.5px solid #dadce0;
+    border-radius: 16px;
     background: #fff;
-    color: #1a73e8;
+    color: #5f6368;
     font-size: 12px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.18s;
+    white-space: nowrap;
 }
 
-.food-map-toggle:hover { background: #e8f0fe; }
+.food-sort-btn:hover { border-color: #FF6B35; color: #FF6B35; }
+.food-sort-btn.sort-active { border-color: #FF6B35; color: #FF6B35; background: #fff8f5; }
 
-.food-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+.food-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e8eaed;
+    border-radius: 10px;
 }
 
-.food-item {
-    border: 1px solid #f1f3f4;
-    border-radius: 8px;
+.food-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 420px;
+}
+
+.food-table thead {
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.food-table th {
     padding: 10px 12px;
-    background: #fafafa;
+    text-align: left;
+    font-weight: 600;
+    color: #3c4043;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    border-bottom: 1.5px solid #e8eaed;
+    white-space: nowrap;
 }
 
-.food-item-main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-bottom: 4px;
-    flex-wrap: wrap;
+.food-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: middle;
+    color: #3c4043;
 }
 
-.food-name {
-    font-size: 14px;
+.food-table tbody tr:last-child td { border-bottom: none; }
+
+.food-row {
+    transition: background 0.15s;
+}
+
+.food-row.has-coords {
+    cursor: pointer;
+}
+
+.food-row.has-coords:hover { background: #fff8f5; }
+.food-row.active { background: #fff3ee !important; }
+
+.col-num  { width: 38px; text-align: center; }
+.col-name { min-width: 120px; }
+.col-cuisine { width: 72px; }
+.col-price { width: 60px; text-align: right; white-space: nowrap; }
+.col-sig { color: #5f6368; }
+
+.food-dot {
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    display: inline-block;
+}
+
+.food-cell-name {
     font-weight: 500;
     color: #202124;
+    margin-bottom: 2px;
 }
 
-.food-cuisine {
-    font-size: 12px;
-    color: #80868b;
+.food-cell-addr {
+    font-size: 11px;
+    color: #9aa0a6;
+    line-height: 1.4;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cuisine-tag {
+    display: inline-block;
+    padding: 2px 7px;
     background: #f1f3f4;
-    padding: 1px 6px;
     border-radius: 8px;
-}
-
-.food-price {
-    font-size: 12px;
-    color: #1a73e8;
-    font-weight: 500;
-    margin-left: auto;
-}
-
-.food-addr {
-    font-size: 12px;
-    color: #80868b;
-    margin-bottom: 3px;
-}
-
-.food-signature {
-    font-size: 12px;
+    font-size: 11px;
     color: #5f6368;
-    margin-bottom: 3px;
+    white-space: nowrap;
 }
 
-.food-reason {
-    font-size: 12px;
-    color: #5f6368;
-    font-style: italic;
+.price-val {
+    font-weight: 600;
+    color: #188038;
 }
 
 /* ═══ 打印样式 ══════════════════════════════════════════════ */

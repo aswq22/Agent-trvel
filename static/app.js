@@ -1035,7 +1035,7 @@ class TravelUI {
         }
         hotelSection.innerHTML = this._renderHotelOptions(structured.hotel_options || []);
 
-        // 酒店选择事件
+        // 酒店选择事件（选中 + 地图跳转）
         hotelSection.querySelectorAll('.hotel-option-card').forEach(card => {
             card.addEventListener('click', () => {
                 hotelSection.querySelectorAll('.hotel-option-card').forEach(c => c.classList.remove('selected'));
@@ -1059,7 +1059,7 @@ class TravelUI {
             });
         }
 
-        // ── 美食推荐区块 ──────────────────────────────────────
+        // ── 美食推荐表格 ──────────────────────────────────────
         const foodSectionId = 'foodRecommendSection';
         let foodSection = document.getElementById(foodSectionId);
         if (!foodSection) {
@@ -1067,17 +1067,10 @@ class TravelUI {
             foodSection.id = foodSectionId;
             this.resultEl.appendChild(foodSection);
         }
-        foodSection.innerHTML = this._renderFoodList(structured.foods || []);
-
-        // 美食地图标注切换
-        const foodToggle = document.getElementById('foodMapToggle');
-        if (foodToggle) {
-            foodToggle.addEventListener('click', () => {
-                this.foodMarkersVisible = !this.foodMarkersVisible;
-                foodToggle.textContent = this.foodMarkersVisible ? '隐藏地图标注' : '在地图上显示';
-                this._toggleFoodMarkers(this.foodMarkersVisible);
-            });
-        }
+        this._allFoods = structured.foods || [];
+        this._foodSortAsc = null;
+        foodSection.innerHTML = this._renderFoodTable(this._allFoods);
+        this._bindFoodTableEvents(foodSection);
 
         // ── 费用摘要 ──────────────────────────────────────────
         const body = this._buildRequestBody();
@@ -1089,21 +1082,27 @@ class TravelUI {
 
     _renderHotelOptions(options) {
         if (!options.length) return '';
+        const hotelIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>`;
+        const pinIcon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+        const stars = n => Array(Math.min(n || 0, 5)).fill('<svg width="11" height="11" viewBox="0 0 24 24" fill="#F59E0B" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>').join('');
         return `
         <div class="hotel-options-section">
-            <div class="section-title">🏨 酒店选项（全程入住，点击选择）</div>
+            <div class="section-title">${hotelIcon} 住宿推荐<span class="section-sub">全程入住同一家，点击选择</span></div>
             <div class="hotel-options-list">
                 ${options.map((h, idx) => `
-                <div class="hotel-option-card${idx === 0 ? ' selected' : ''}" data-idx="${idx}">
-                    <div class="hotel-option-name">${this._esc(h.name)}</div>
-                    <div class="hotel-option-meta">
-                        ${h.stars ? '⭐'.repeat(Math.min(h.stars, 5)) : ''}
-                        ${h.rating ? ` · 评分 ${h.rating}` : ''}
-                        ${h.price_per_night ? ` · ¥${h.price_per_night}/晚` : ''}
+                <div class="hotel-option-card${idx === 0 ? ' selected' : ''}" data-idx="${idx}"
+                     data-lng="${h.lng || ''}" data-lat="${h.lat || ''}">
+                    <div class="hotel-card-header">
+                        <span class="hotel-option-name">${this._esc(h.name)}</span>
+                        ${h.price_per_night ? `<span class="hotel-price">¥${h.price_per_night}<span class="hotel-price-unit">/晚</span></span>` : ''}
                     </div>
-                    ${h.address ? `<div class="hotel-option-addr">📍 ${this._esc(h.address)}</div>` : ''}
+                    <div class="hotel-meta-row">
+                        ${h.stars ? `<span class="hotel-stars">${stars(h.stars)}</span>` : ''}
+                        ${h.rating ? `<span class="hotel-rating">${h.rating} 分</span>` : ''}
+                    </div>
+                    ${h.address ? `<div class="hotel-option-addr">${pinIcon} ${this._esc(h.address)}</div>` : ''}
                     ${h.reason ? `<div class="hotel-option-reason">${this._esc(h.reason)}</div>` : ''}
-                    ${h.amenities?.length ? `<div class="hotel-option-tags">${h.amenities.slice(0,4).map(a => `<span class="tag">${this._esc(a)}</span>`).join('')}</div>` : ''}
+                    ${h.amenities?.length ? `<div class="hotel-option-tags">${h.amenities.slice(0,5).map(a => `<span class="tag">${this._esc(a)}</span>`).join('')}</div>` : ''}
                 </div>`).join('')}
             </div>
         </div>`;
@@ -1140,37 +1139,108 @@ class TravelUI {
         </div>`;
     }
 
-    _renderFoodList(foods) {
+    _renderFoodTable(foods) {
         if (!foods.length) return '';
+        const diningIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>`;
+        const sortIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10M11 9h7M11 13h4"/><path d="M3 5l4 4-4 4"/></svg>`;
+        const rows = foods.map((f, i) => this._foodRowHtml(f, i)).join('');
         return `
-        <div class="food-recommend-section">
-            <div class="section-title">
-                🍜 美食推荐（自由选择）
-                <button class="food-map-toggle" id="foodMapToggle">在地图上显示</button>
+        <div class="food-table-section">
+            <div class="food-table-header">
+                <div class="section-title">${diningIcon} 美食推荐<span class="section-sub">共 ${foods.length} 家 · 已标注地图 · 点击行定位</span></div>
+                <button class="food-sort-btn" id="foodSortBtn" title="按人均价格排序">
+                    ${sortIcon}<span id="foodSortLabel">价格排序</span>
+                </button>
             </div>
-            <div class="food-list">
-                ${foods.map(f => `
-                <div class="food-item">
-                    <div class="food-item-main">
-                        <span class="food-name">${this._esc(f.name)}</span>
-                        <span class="food-cuisine">${this._esc(f.cuisine)}</span>
-                        ${f.avg_price ? `<span class="food-price">人均 ¥${f.avg_price}</span>` : ''}
-                    </div>
-                    ${f.address ? `<div class="food-addr">📍 ${this._esc(f.address)}</div>` : ''}
-                    ${Array.isArray(f.signature) && f.signature.length
-                        ? `<div class="food-signature">招牌：${f.signature.slice(0,3).map(s => this._esc(s)).join('、')}</div>`
-                        : ''}
-                    ${f.reason ? `<div class="food-reason">${this._esc(f.reason)}</div>` : ''}
-                </div>`).join('')}
+            <div class="food-table-wrap">
+                <table class="food-table">
+                    <thead>
+                        <tr>
+                            <th class="col-num">#</th>
+                            <th class="col-name">餐厅</th>
+                            <th class="col-cuisine">菜系</th>
+                            <th class="col-price">人均</th>
+                            <th class="col-sig">招牌菜</th>
+                        </tr>
+                    </thead>
+                    <tbody id="foodTableBody">${rows}</tbody>
+                </table>
             </div>
         </div>`;
     }
 
+    _foodRowHtml(f, i) {
+        const sig = Array.isArray(f.signature) ? f.signature.slice(0, 3).join('、') : (f.signature || '');
+        const hasCoords = f.lng && f.lat;
+        return `<tr class="food-row${hasCoords ? ' has-coords' : ''}" data-idx="${i}"
+                    data-lng="${f.lng || ''}" data-lat="${f.lat || ''}"
+                    title="${hasCoords ? '点击在地图上定位' : '暂无坐标'}">
+            <td class="col-num"><span class="food-dot" style="background:${this._foodColor(i)}">${i + 1}</span></td>
+            <td class="col-name">
+                <div class="food-cell-name">${this._esc(f.name)}</div>
+                ${f.address ? `<div class="food-cell-addr">${this._esc(f.address)}</div>` : ''}
+            </td>
+            <td class="col-cuisine"><span class="cuisine-tag">${this._esc(f.cuisine || '—')}</span></td>
+            <td class="col-price">${f.avg_price ? `<span class="price-val">¥${f.avg_price}</span>` : '—'}</td>
+            <td class="col-sig">${this._esc(sig) || '—'}</td>
+        </tr>`;
+    }
+
+    _foodColor(idx) {
+        const palette = ['#FF6B35','#E8572A','#FF8C00','#D4520A','#FF7043','#E64A19','#FF5722','#BF360C','#FF6D00','#E65100'];
+        return palette[idx % palette.length];
+    }
+
+    _bindFoodTableEvents(container) {
+        // 排序按钮
+        const sortBtn = container.querySelector('#foodSortBtn');
+        const label = container.querySelector('#foodSortLabel');
+        if (sortBtn) {
+            sortBtn.addEventListener('click', () => {
+                this._foodSortAsc = this._foodSortAsc === null ? true : !this._foodSortAsc;
+                const sorted = [...this._allFoods].sort((a, b) => {
+                    const pa = a.avg_price || 0, pb = b.avg_price || 0;
+                    return this._foodSortAsc ? pa - pb : pb - pa;
+                });
+                const tbody = container.querySelector('#foodTableBody');
+                if (tbody) tbody.innerHTML = sorted.map((f, i) => this._foodRowHtml(f, i)).join('');
+                if (label) label.textContent = this._foodSortAsc ? '价格↑' : '价格↓';
+                sortBtn.classList.toggle('sort-active', true);
+                this._rebindFoodRows(container);
+            });
+        }
+        this._rebindFoodRows(container);
+    }
+
+    _rebindFoodRows(container) {
+        container.querySelectorAll('.food-row.has-coords').forEach(row => {
+            row.addEventListener('click', () => {
+                const lng = parseFloat(row.dataset.lng);
+                const lat = parseFloat(row.dataset.lat);
+                const idx = parseInt(row.dataset.idx);
+                // 高亮行
+                container.querySelectorAll('.food-row').forEach(r => r.classList.remove('active'));
+                row.classList.add('active');
+                // 地图定位
+                if (this.mapInstance && lng && lat) {
+                    this.mapInstance.setCenter([lng, lat]);
+                    this.mapInstance.setZoom(16);
+                    // 打开对应 InfoWindow
+                    if (this.foodInfoWindows?.[idx]) {
+                        this.foodInfoWindows[idx].open(this.mapInstance, this.foodMarkers[idx].getPosition());
+                    }
+                }
+            });
+        });
+    }
+
     _updateSelectedHotel(hotel) {
-        // 更新地图上的酒店标注
         this._clearHotelMarkers();
-        if (hotel.lng && hotel.lat) {
-            this._addMarkers([hotel], 'hotel');
+        if (hotel.lng && hotel.lat) this._addHotelMapMarker(hotel);
+        // 地图跳转
+        if (this.mapInstance && hotel.lng && hotel.lat) {
+            this.mapInstance.setCenter([hotel.lng, hotel.lat]);
+            this.mapInstance.setZoom(14);
         }
     }
 
@@ -1303,19 +1373,17 @@ class TravelUI {
         this.markers.forEach(m => m.setMap(null));
         this.polylines.forEach(p => p.setMap(null));
         (this.foodMarkers || []).forEach(m => m.setMap(null));
+        (this.hotelMarkers || []).forEach(m => m.setMap(null));
         this.markers = [];
         this.polylines = [];
         this.foodMarkers = [];
-        this._foodData = [];
-        this.foodMarkersVisible = false;
+        this.foodInfoWindows = [];
+        this.hotelMarkers = [];
     }
 
+    // SSE 进度阶段的临时景点标记（蓝色默认图钉，被 _renderMapFromStructured 覆盖）
     _addMarkers(items, type) {
         if (!this.mapInstance || !window.AMap) return;
-        const imgBlue = 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png';
-        const imgRed  = 'https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png';
-        const imgUrl  = type === 'hotel' ? imgRed : imgBlue;
-
         items.forEach(item => {
             if (!item.lng || !item.lat) return;
             const marker = new window.AMap.Marker({
@@ -1323,18 +1391,84 @@ class TravelUI {
                 title: item.name || '',
                 map: this.mapInstance,
                 icon: new window.AMap.Icon({
-                    image: imgUrl,
+                    image: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png',
                     size: new window.AMap.Size(19, 31),
                     imageSize: new window.AMap.Size(19, 31),
                 }),
             });
-            const label = type === 'hotel' ? `🏨 ${item.name}` : `🏛️ ${item.name}`;
-            const info = new window.AMap.InfoWindow({
-                content: `<div style="padding:6px 10px;font-size:13px">${label}</div>`,
-                offset: new window.AMap.Pixel(0, -30),
-            });
-            marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
             this.markers.push(marker);
+        });
+    }
+
+    _addHotelMapMarker(hotel) {
+        if (!this.mapInstance || !window.AMap || !hotel?.lng || !hotel?.lat) return;
+        const svgContent = `<div style="
+            width:38px;height:38px;background:#1a73e8;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 3px 10px rgba(26,115,232,0.5);border:2.5px solid #fff;
+            cursor:pointer;transition:transform 0.15s
+        ">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>
+            </svg>
+        </div>`;
+        const marker = new window.AMap.Marker({
+            position: [hotel.lng, hotel.lat],
+            map: this.mapInstance,
+            content: svgContent,
+            offset: new window.AMap.Pixel(-19, -19),
+            zIndex: 200,
+        });
+        const priceStr = hotel.price_per_night ? `¥${hotel.price_per_night}/晚` : '';
+        const infoHtml = `<div style="padding:10px 14px;font-size:13px;min-width:160px">
+            <div style="font-weight:600;color:#1a73e8;margin-bottom:4px">${hotel.name || '酒店'}</div>
+            ${hotel.stars ? `<div style="color:#F59E0B;font-size:12px">${'★'.repeat(Math.min(hotel.stars,5))} ${hotel.rating ? hotel.rating + ' 分' : ''}</div>` : ''}
+            ${priceStr ? `<div style="color:#188038;font-weight:500;margin-top:4px">${priceStr}</div>` : ''}
+            ${hotel.address ? `<div style="color:#80868b;font-size:12px;margin-top:4px">${hotel.address}</div>` : ''}
+        </div>`;
+        const info = new window.AMap.InfoWindow({ content: infoHtml, offset: new window.AMap.Pixel(0, -38) });
+        marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
+        this.hotelMarkers = this.hotelMarkers || [];
+        this.hotelMarkers.push(marker);
+    }
+
+    _addFoodMapMarkers(foods) {
+        if (!this.mapInstance || !window.AMap) return;
+        this.foodMarkers = [];
+        this.foodInfoWindows = [];
+        foods.forEach((f, idx) => {
+            if (!f.lng || !f.lat) return;
+            const bg = this._foodColor(idx);
+            const svgContent = `<div style="
+                width:34px;height:34px;background:${bg};border-radius:50%;
+                display:flex;align-items:center;justify-content:center;
+                box-shadow:0 3px 8px rgba(255,107,53,0.45);border:2.5px solid #fff;
+                cursor:pointer;transition:transform 0.15s
+            ">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/>
+                    <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>
+                </svg>
+            </div>`;
+            const marker = new window.AMap.Marker({
+                position: [f.lng, f.lat],
+                map: this.mapInstance,
+                content: svgContent,
+                offset: new window.AMap.Pixel(-17, -17),
+                zIndex: 150,
+            });
+            const sig = Array.isArray(f.signature) ? f.signature.slice(0,3).join('、') : (f.signature || '');
+            const infoHtml = `<div style="padding:10px 14px;font-size:13px;min-width:150px;max-width:220px">
+                <div style="font-weight:600;color:#FF6B35;margin-bottom:4px">${f.name || '餐厅'}</div>
+                ${f.cuisine ? `<span style="background:#fff3ee;color:#FF6B35;font-size:11px;padding:1px 6px;border-radius:8px">${f.cuisine}</span>` : ''}
+                ${f.avg_price ? `<span style="float:right;color:#188038;font-weight:600">¥${f.avg_price}/人</span>` : ''}
+                ${sig ? `<div style="color:#5f6368;font-size:12px;margin-top:6px">招牌：${sig}</div>` : ''}
+                ${f.address ? `<div style="color:#80868b;font-size:12px;margin-top:4px">${f.address}</div>` : ''}
+            </div>`;
+            const infoWin = new window.AMap.InfoWindow({ content: infoHtml, offset: new window.AMap.Pixel(0, -34) });
+            marker.on('click', () => infoWin.open(this.mapInstance, marker.getPosition()));
+            this.foodMarkers.push(marker);
+            this.foodInfoWindows.push(infoWin);
         });
     }
 
@@ -1413,51 +1547,13 @@ class TravelUI {
             ));
         }
 
-        // ── 保存美食数据供切换使用 ─────────────────────────────
-        this._foodData = structured.foods || [];
-        this.foodMarkersVisible = false;
-        this.foodMarkers = [];
+        // ── 美食标注（常驻，无需切换）──────────────────────────
+        this._addFoodMapMarkers(structured.foods || []);
     }
 
     _clearHotelMarkers() {
-        // 清除酒店类型的标记（红色标记）重新添加新选中的
-        this.markers = this.markers.filter(m => {
-            const el = m.getContent?.();
-            if (typeof el === 'string' && el.includes('mark_r')) {
-                m.setMap(null);
-                return false;
-            }
-            return true;
-        });
-    }
-
-    _toggleFoodMarkers(visible) {
-        if (!this.mapInstance || !window.AMap) return;
-        if (!visible) {
-            this.foodMarkers.forEach(m => m.setMap(null));
-            this.foodMarkers = [];
-            return;
-        }
-        (this._foodData || []).forEach(f => {
-            if (!f.lng || !f.lat) return;
-            const marker = new window.AMap.Marker({
-                position: [f.lng, f.lat],
-                map: this.mapInstance,
-                content: `<div style="background:#FF6B35;color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,.3)">🍜 ${f.name}</div>`,
-                offset: new window.AMap.Pixel(-20, -16),
-            });
-            const info = new window.AMap.InfoWindow({
-                content: `<div style="padding:8px 12px;font-size:13px;max-width:200px">
-                    <b>🍜 ${f.name}</b>
-                    ${f.cuisine ? `<br><span style="color:#80868b">${f.cuisine}</span>` : ''}
-                    ${f.avg_price ? `<br>人均 ¥${f.avg_price}` : ''}
-                    ${f.address ? `<br><span style="font-size:12px;color:#80868b">📍 ${f.address}</span>` : ''}
-                </div>`,
-                offset: new window.AMap.Pixel(0, -16),
-            });
-            marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
-            this.foodMarkers.push(marker);
-        });
+        (this.hotelMarkers || []).forEach(m => m.setMap(null));
+        this.hotelMarkers = [];
     }
 
     _highlightDay(dayNum) {
