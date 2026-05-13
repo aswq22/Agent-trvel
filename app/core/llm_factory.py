@@ -59,7 +59,7 @@ class LLMFactory:
         api_key  = config.travel_llm_api_key
         base_url = config.travel_llm_api_base
 
-        logger.debug("旅游 LLM: model={} base={}", model, base_url.split("/")[2])
+        logger.info("旅游 LLM 初始化: model={} base={}", model, base_url.split("/")[2])
 
         return ChatOpenAI(
             model=model,
