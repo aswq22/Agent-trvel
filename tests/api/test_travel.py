@@ -12,12 +12,35 @@ async def test_travel_service_yields_complete_event():
 
     with patch.object(travel_service, "_graph") as mock_graph:
         mock_graph.astream = mock_stream
-        mock_graph.get_state = MagicMock(return_value=MagicMock(values={"final_plan": "成都3日游攻略..."}))
+        mock_graph.get_state = MagicMock(return_value=MagicMock(
+            values={"final_plan": "成都3日游攻略...", "structured_plan": {"days": [], "total_cost": 3000.0, "tips": []}}
+        ))
         events = []
         async for event in travel_service.plan(user_input="帮我规划成都3日游"):
             events.append(event)
 
     assert any(e.get("type") == "complete" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_travel_service_complete_includes_structured_plan():
+    from app.services.travel_service import travel_service
+
+    async def mock_stream(*args, **kwargs):
+        yield {"strategy_agent": {"final_plan": "攻略", "structured_plan": {"days": [{"day": 1}], "total_cost": 1000.0, "tips": []}}}
+
+    with patch.object(travel_service, "_graph") as mock_graph:
+        mock_graph.astream = mock_stream
+        mock_graph.get_state = MagicMock(return_value=MagicMock(
+            values={"final_plan": "攻略", "structured_plan": {"days": [{"day": 1}], "total_cost": 1000.0, "tips": []}}
+        ))
+        events = []
+        async for event in travel_service.plan(user_input="成都之旅"):
+            events.append(event)
+
+    complete = next(e for e in events if e.get("type") == "complete")
+    assert complete.get("structured_plan") is not None
+    assert complete["structured_plan"]["total_cost"] == 1000.0
 
 
 def test_trip_request_model():

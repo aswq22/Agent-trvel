@@ -39,13 +39,16 @@ class TravelService:
 
             final_state = self._graph.get_state(config_dict)
             final_plan = ""
+            structured_plan = None
             if final_state and final_state.values:
                 final_plan = final_state.values.get("final_plan", "")
+                structured_plan = final_state.values.get("structured_plan")
 
             yield {
                 "type": "complete",
                 "message": "规划完成" if final_plan else "规划完成（无攻略输出）",
                 "final_plan": final_plan,
+                "structured_plan": structured_plan,
             }
             logger.info(f"[会话 {session_id}] 规划完成")
 
@@ -68,7 +71,7 @@ class TravelService:
         if output:
             if node_name == "strategy_agent" and output.get("final_plan"):
                 event["content"] = output["final_plan"]
-            elif node_name == "attraction_agent" and output.get("attractions"):
+            if node_name == "attraction_agent" and output.get("attractions"):
                 event["attractions"] = output["attractions"]
         return event
 
