@@ -2087,6 +2087,123 @@ body {
 
 /* ═══ 打印样式 ══════════════════════════════════════════════ */
 
+/* ═══ 天气组件 ══════════════════════════════════════════════ */
+
+.weather-widget {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 100;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    min-width: 190px;
+    max-width: 230px;
+    font-family: inherit;
+    pointer-events: none;
+}
+
+.weather-live {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.wl-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.wl-icon { font-size: 26px; line-height: 1; }
+.wl-city { font-size: 13px; font-weight: 600; color: #202124; }
+.wl-cond { font-size: 12px; color: #80868b; }
+
+.wl-temp {
+    font-size: 28px;
+    font-weight: 300;
+    color: #1a73e8;
+    line-height: 1;
+}
+
+.wl-unit { font-size: 14px; }
+
+.weather-detail {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+    color: #80868b;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.weather-forecast {
+    display: flex;
+    gap: 6px;
+    border-top: 1px solid #f1f3f4;
+    padding-top: 8px;
+}
+
+.wf-item {
+    flex: 1;
+    text-align: center;
+}
+
+.wf-day  { font-size: 11px; color: #80868b; margin-bottom: 3px; }
+.wf-icon { font-size: 16px; line-height: 1; margin-bottom: 3px; }
+.wf-temp { font-size: 11px; color: #3c4043; font-weight: 500; white-space: nowrap; }
+
+.wi-sunny  { color: #F59E0B; }
+.wi-cloudy { color: #9AA0A6; }
+.wi-rainy  { color: #4A90E2; }
+.wi-snow   { color: #4A90E2; }
+.wi-fog    { color: #9AA0A6; }
+.wi-cloud  { color: #9AA0A6; }
+
+/* ═══ 路线步骤 ═══════════════════════════════════════════════ */
+
+.route-steps-container {
+    margin-bottom: 12px;
+}
+
+.route-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+}
+
+.route-step {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rs-node {
+    font-weight: 500;
+    color: #202124;
+    font-size: 12px;
+}
+
+.rs-seg {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 3px 0 3px 8px;
+    border-left: 2px dashed #dadce0;
+    margin: 2px 0 2px 5px;
+    color: #188038;
+}
+
+/* ═══ 打印样式 ══════════════════════════════════════════════ */
+
 @media print {
     .sidebar,
     .travel-toolbar,

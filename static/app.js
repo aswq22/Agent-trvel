@@ -1133,7 +1133,7 @@ class TravelUI {
                 <span class="day-card-toggle">▼</span>
             </div>
             <div class="day-card-body">
-                ${routeHtml}
+                <div id="route-day-${day.day}" class="route-steps-container">${routeHtml}</div>
                 ${attrHtml ? `<ul class="attr-list">${attrHtml}</ul>` : '<p style="color:#80868b">暂无景点数据</p>'}
             </div>
         </div>`;
@@ -1351,7 +1351,7 @@ class TravelUI {
 
             await new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.Polyline`;
+                s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.Polyline,AMap.Driving,AMap.Transfer,AMap.Walking,AMap.Cycling,AMap.Weather`;
                 s.onload = resolve;
                 s.onerror = reject;
                 document.head.appendChild(s);
@@ -1374,11 +1374,13 @@ class TravelUI {
         this.polylines.forEach(p => p.setMap(null));
         (this.foodMarkers || []).forEach(m => m.setMap(null));
         (this.hotelMarkers || []).forEach(m => m.setMap(null));
+        (this.routeRenderers || []).forEach(r => { try { r.clear(); } catch (_) {} });
         this.markers = [];
         this.polylines = [];
         this.foodMarkers = [];
         this.foodInfoWindows = [];
         this.hotelMarkers = [];
+        this.routeRenderers = [];
     }
 
     // SSE 进度阶段的临时景点标记（蓝色默认图钉，被 _renderMapFromStructured 覆盖）
@@ -1549,11 +1551,255 @@ class TravelUI {
 
         // ── 美食标注（常驻，无需切换）──────────────────────────
         this._addFoodMapMarkers(structured.foods || []);
+
+        // ── 天气 + 路线规划（异步，不阻塞地图展示）──────────────
+        const dest = this._buildRequestBody().trip_params.destination;
+        this._fetchWeather(dest);
+        setTimeout(() => this._planDayRoutes(structured, dest), 800);
     }
 
     _clearHotelMarkers() {
         (this.hotelMarkers || []).forEach(m => m.setMap(null));
         this.hotelMarkers = [];
+    }
+
+    // ─── 天气 ──────────────────────────────────────────────────────────────────
+
+    _fetchWeather(city) {
+        if (!window.AMap?.Weather) return;
+        const weather = new window.AMap.Weather();
+        weather.getLive(city, (err, live) => {
+            if (err || !live) return;
+            weather.getForecast(city, (err2, forecast) => {
+                this._renderWeatherWidget(live, err2 ? null : forecast);
+            });
+        });
+    }
+
+    _renderWeatherWidget(live, forecast) {
+        const el = document.getElementById('weatherWidget');
+        if (!el) return;
+
+        const condIcon = cond => {
+            if (!cond) return '';
+            if (cond.includes('晴')) return '<span class="wi-sunny">☀</span>';
+            if (cond.includes('云') || cond.includes('阴')) return '<span class="wi-cloudy">⛅</span>';
+            if (cond.includes('雨')) return '<span class="wi-rainy">🌧</span>';
+            if (cond.includes('雪')) return '<span class="wi-snow">❄</span>';
+            if (cond.includes('雾') || cond.includes('霾')) return '<span class="wi-fog">🌫</span>';
+            return '<span class="wi-cloud">☁</span>';
+        };
+
+        const forecastHtml = forecast?.forecasts?.slice(0, 3).map(f => `
+            <div class="wf-item">
+                <div class="wf-day">${f.week === '1' ? '周一' : f.week === '2' ? '周二' : f.week === '3' ? '周三' : f.week === '4' ? '周四' : f.week === '5' ? '周五' : f.week === '6' ? '周六' : '周日'}</div>
+                <div class="wf-icon">${condIcon(f.dayWeather)}</div>
+                <div class="wf-temp">${f.nightTemp}°~${f.dayTemp}°</div>
+            </div>`).join('') || '';
+
+        el.innerHTML = `
+            <div class="weather-live">
+                <div class="wl-left">
+                    <span class="wl-icon">${condIcon(live.weather)}</span>
+                    <div>
+                        <div class="wl-city">${this._esc(live.city || '')}</div>
+                        <div class="wl-cond">${this._esc(live.weather || '')}</div>
+                    </div>
+                </div>
+                <div class="wl-temp">${live.temperature}°<span class="wl-unit">C</span></div>
+            </div>
+            <div class="weather-detail">
+                ${live.windDirection ? `<span>${this._esc(live.windDirection)}风 ${live.windPower || ''}级</span>` : ''}
+                ${live.humidity ? `<span>湿度 ${live.humidity}%</span>` : ''}
+            </div>
+            ${forecastHtml ? `<div class="weather-forecast">${forecastHtml}</div>` : ''}`;
+        el.style.display = '';
+    }
+
+    // ─── 智能路线规划 ──────────────────────────────────────────────────────────
+
+    async _planDayRoutes(structured, city) {
+        if (!this.mapInstance || !window.AMap) return;
+        const hotel = structured.selected_hotel || structured.hotel_options?.[0];
+
+        // 清除简单折线，由实际路线替代
+        this.polylines.forEach(p => p.setMap(null));
+        this.polylines = [];
+        this.routeRenderers = [];
+
+        const COLORS = ['#4A90E2', '#E2574A', '#FF8C00', '#9B59B6', '#1ABC9C', '#F39C12', '#E91E63'];
+
+        for (let dayIdx = 0; dayIdx < structured.days.length; dayIdx++) {
+            const day = structured.days[dayIdx];
+            await this._planOneDayRoute(day, hotel, city, COLORS[dayIdx % COLORS.length], dayIdx);
+        }
+    }
+
+    async _planOneDayRoute(day, hotel, city, color, dayIdx) {
+        const waypoints = [];
+        if (hotel?.lng && hotel?.lat) waypoints.push({ lng: hotel.lng, lat: hotel.lat, name: hotel.name || '酒店' });
+        for (const a of day.attractions || []) {
+            if (a.lng && a.lat) waypoints.push({ lng: a.lng, lat: a.lat, name: a.name });
+        }
+        if (hotel?.lng && hotel?.lat && waypoints.length > 1) {
+            waypoints.push({ lng: hotel.lng, lat: hotel.lat, name: hotel.name || '酒店' });
+        }
+        if (waypoints.length < 2) return;
+
+        // ── 每段距离 + 交通方式 ──────────────────────────────
+        const segments = [];
+        for (let i = 0; i < waypoints.length - 1; i++) {
+            const distKm = this._distanceKm(
+                [waypoints[i].lng, waypoints[i].lat],
+                [waypoints[i+1].lng, waypoints[i+1].lat]
+            );
+            segments.push({ from: waypoints[i], to: waypoints[i+1], distKm });
+        }
+
+        // ── 查询各段交通方式（中等距离查地铁）────────────────
+        const modes = await Promise.all(segments.map(seg => this._resolveTransport(seg, city)));
+
+        // ── 更新日程卡片路线信息 ──────────────────────────────
+        this._updateDayCardRoute(day.day, waypoints, modes);
+
+        // ── 用 Driving API 获取实际路线并用自定义色渲染 ──────
+        await this._renderActualRoute(waypoints, color);
+    }
+
+    async _resolveTransport(seg, city) {
+        const dist = seg.distKm;
+        if (dist < 1.5) {
+            return { mode: 'walk', label: '步行', mins: Math.ceil(dist * 1000 / 80), distKm: dist };
+        }
+        if (dist < 4) {
+            return { mode: 'cycle', label: '骑行', mins: Math.ceil(dist * 1000 / 200), distKm: dist };
+        }
+        // 中等距离：查询公交/地铁
+        if (dist < 30 && window.AMap?.Transfer) {
+            const result = await this._queryTransit(seg, city);
+            if (result) return result;
+        }
+        // 远距离或无公交
+        return { mode: 'taxi', label: '打车', mins: Math.ceil(dist * 60 / 40), distKm: dist };
+    }
+
+    _queryTransit(seg, city) {
+        return new Promise(resolve => {
+            try {
+                const transfer = new window.AMap.Transfer({
+                    city,
+                    policy: window.AMap.TransferPolicy ? window.AMap.TransferPolicy.LEAST_TIME : 0,
+                    hideMarkers: true,
+                });
+                const timeout = setTimeout(() => resolve(null), 4000);
+                transfer.search(
+                    new window.AMap.LngLat(seg.from.lng, seg.from.lat),
+                    new window.AMap.LngLat(seg.to.lng, seg.to.lat),
+                    (status, result) => {
+                        clearTimeout(timeout);
+                        if (status !== 'complete' || !result?.plans?.length) { resolve(null); return; }
+                        const plan = result.plans[0];
+                        const hasSubway = plan.segments?.some(s =>
+                            s.transit?.lines?.some(l => l.type === '地铁' || l.type === 'Subway')
+                        );
+                        const mins = Math.ceil((plan.time || 0) / 60);
+                        resolve({
+                            mode: hasSubway ? 'metro' : 'bus',
+                            label: hasSubway ? '乘地铁' : '乘公交',
+                            mins: mins || Math.ceil(seg.distKm * 60 / 25),
+                            distKm: seg.distKm,
+                        });
+                    }
+                );
+            } catch (_) { resolve(null); }
+        });
+    }
+
+    async _renderActualRoute(waypoints, color) {
+        if (!window.AMap?.Driving || waypoints.length < 2) return;
+        return new Promise(resolve => {
+            try {
+                const driving = new window.AMap.Driving({
+                    autoFitView: false,
+                    policy: 0, // LEAST_TIME
+                });
+                const origin = new window.AMap.LngLat(waypoints[0].lng, waypoints[0].lat);
+                const dest   = new window.AMap.LngLat(waypoints[waypoints.length - 1].lng, waypoints[waypoints.length - 1].lat);
+                const via    = waypoints.slice(1, -1).map(p => new window.AMap.LngLat(p.lng, p.lat));
+                const timeout = setTimeout(() => resolve(), 6000);
+
+                driving.search(origin, dest, { waypoints: via }, (status, result) => {
+                    clearTimeout(timeout);
+                    if (status === 'complete' && result?.routes?.[0]?.steps) {
+                        const path = [];
+                        result.routes[0].steps.forEach(step => {
+                            if (step.path) path.push(...step.path);
+                        });
+                        if (path.length > 1) {
+                            const poly = new window.AMap.Polyline({
+                                path,
+                                strokeColor: color,
+                                strokeWeight: 4,
+                                strokeOpacity: 0.85,
+                                map: this.mapInstance,
+                                zIndex: 50,
+                            });
+                            this.polylines.push(poly);
+                        }
+                    }
+                    resolve();
+                });
+                this.routeRenderers.push(driving);
+            } catch (_) { resolve(); }
+        });
+    }
+
+    _distanceKm(pt1, pt2) {
+        const R = 6371;
+        const dLat = (pt2[1] - pt1[1]) * Math.PI / 180;
+        const dLng = (pt2[0] - pt1[0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 +
+                  Math.cos(pt1[1]*Math.PI/180) * Math.cos(pt2[1]*Math.PI/180) *
+                  Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    _updateDayCardRoute(dayNum, waypoints, modes) {
+        const el = document.getElementById(`route-day-${dayNum}`);
+        if (!el) return;
+
+        const modeIconHtml = mode => {
+            const icons = {
+                walk:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="4" r="2"/><path d="M9 22V12l-2-5h10l-2 5v10"/><path d="M9 14h6"/></svg>`,
+                cycle: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 0 0 0-2h-3l-3 9 2 2 1-4 2 3h3"/><circle cx="15" cy="5" r="1"/></svg>`,
+                metro: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2" width="14" height="18" rx="3"/><circle cx="9" cy="16" r="1" fill="currentColor"/><circle cx="15" cy="16" r="1" fill="currentColor"/><path d="M9 6h6M9 10h6"/><path d="M7 20l-2 2m12-2l2 2"/></svg>`,
+                bus:   `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 9h18M3 14h18M8 20v-3m8 3v-3"/><circle cx="7" cy="17" r="1" fill="currentColor"/><circle cx="17" cy="17" r="1" fill="currentColor"/></svg>`,
+                taxi:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M9 8v4"/></svg>`,
+            };
+            return icons[mode] || '';
+        };
+
+        const modeColors = { walk:'#188038', cycle:'#1a73e8', metro:'#9C27B0', bus:'#FF6B35', taxi:'#F59E0B' };
+
+        let html = '<div class="route-steps">';
+        for (let i = 0; i < modes.length; i++) {
+            const m = modes[i];
+            const color = modeColors[m.mode] || '#5f6368';
+            const distStr = m.distKm < 1 ? `${Math.round(m.distKm * 1000)}m` : `${m.distKm.toFixed(1)}km`;
+            html += `
+            <div class="route-step">
+                <span class="rs-node">${this._esc(waypoints[i]?.name || '')}</span>
+                <div class="rs-seg" style="color:${color}">
+                    ${modeIconHtml(m.mode)}
+                    <span>${m.label} · ${distStr} · 约${m.mins}分钟</span>
+                </div>
+            </div>`;
+        }
+        if (waypoints.length) {
+            html += `<span class="rs-node">${this._esc(waypoints[waypoints.length-1]?.name || '')}</span>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
     }
 
     _highlightDay(dayNum) {
