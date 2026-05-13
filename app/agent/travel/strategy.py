@@ -4,10 +4,9 @@ from textwrap import dedent
 from typing import Dict, Any
 
 from langchain_core.messages import HumanMessage
-from langchain_qwq import ChatQwen
 from loguru import logger
 
-from app.config import config
+from app.core.llm_factory import LLMFactory
 from app.agent.travel.state import TravelPlanState
 
 _SYSTEM = {
@@ -183,7 +182,7 @@ async def strategy_node(state: TravelPlanState) -> Dict[str, Any]:
     prompt = context + ("\n\n请生成完整攻略：" if lang == "zh" else "\n\nPlease generate the complete travel guide:")
 
     try:
-        llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, base_url=config.dashscope_api_base, temperature=0.3)
+        llm = LLMFactory.create_travel_llm(temperature=0.3)
         response = await llm.ainvoke([HumanMessage(content=system_prompt + "\n\n" + prompt)])
         final_plan = response.content if hasattr(response, "content") else str(response)
         logger.info(f"StrategyAgent 完成，攻略长度: {len(final_plan)} 字符")

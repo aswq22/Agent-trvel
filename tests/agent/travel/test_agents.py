@@ -3,6 +3,8 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from app.agent.travel.state import TravelPlanState, TripParams
 
+_LLM_PATCH = "app.core.llm_factory.LLMFactory.create_travel_llm"
+
 
 def _make_full_state(destination="成都", days=3, language="zh") -> TravelPlanState:
     return {
@@ -13,29 +15,33 @@ def _make_full_state(destination="成都", days=3, language="zh") -> TravelPlanS
         "hotels": [],
         "foods": [],
         "final_plan": "",
+        "structured_plan": None,
         "errors": {},
         "messages": [],
     }
+
+
+def _mock_llm(content: str):
+    """Return a mock LLM that yields `content` on ainvoke."""
+    mock_response = MagicMock()
+    mock_response.tool_calls = []
+    mock_response.content = content
+    llm = MagicMock()
+    llm.bind_tools.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    llm.ainvoke = AsyncMock(return_value=mock_response)
+    return llm
 
 
 @pytest.mark.asyncio
 async def test_attraction_agent_returns_list():
     from app.agent.travel.attraction import attraction_node
 
-    mock_tools = []
-    mock_response = MagicMock()
-    mock_response.tool_calls = []
-    mock_response.content = '[{"name": "大熊猫基地", "address": "成华区", "rating": 4.9, "reason": "必去"}]'
-
-    with patch("app.agent.travel.attraction.get_travel_mcp_client") as mock_client_fn:
+    with patch("app.agent.travel.attraction.get_travel_mcp_client") as mock_client_fn, \
+         patch(_LLM_PATCH, return_value=_mock_llm('[{"name": "大熊猫基地", "address": "成华区", "rating": 4.9, "reason": "必去"}]')):
         mock_client = AsyncMock()
-        mock_client.get_tools = AsyncMock(return_value=mock_tools)
+        mock_client.get_tools = AsyncMock(return_value=[])
         mock_client_fn.return_value = mock_client
-        with patch("app.agent.travel.attraction.ChatQwen") as MockLLM:
-            mock_llm_instance = MagicMock()
-            mock_llm_instance.bind_tools.return_value.ainvoke = AsyncMock(return_value=mock_response)
-            MockLLM.return_value = mock_llm_instance
-            result = await attraction_node(_make_full_state())
+        result = await attraction_node(_make_full_state())
 
     assert "attractions" in result
     assert isinstance(result["attractions"], list)
@@ -63,19 +69,13 @@ async def test_route_agent_returns_dict():
         {"name": "宽窄巷子", "address": "青羊区", "lat": 30.6665, "lng": 104.0490},
     ]
 
-    mock_response = MagicMock()
-    mock_response.tool_calls = []
-    mock_response.content = '{"days": [{"day": 1, "attractions": ["大熊猫基地"], "transport": "地铁"}]}'
-
-    with patch("app.agent.travel.route.get_travel_mcp_client") as mock_fn:
+    content = '{"days": [{"day": 1, "attractions": ["大熊猫基地"], "transport": "地铁"}]}'
+    with patch("app.agent.travel.route.get_travel_mcp_client") as mock_fn, \
+         patch(_LLM_PATCH, return_value=_mock_llm(content)):
         mock_client = AsyncMock()
         mock_client.get_tools = AsyncMock(return_value=[])
         mock_fn.return_value = mock_client
-        with patch("app.agent.travel.route.ChatQwen") as MockLLM:
-            mock_llm = MagicMock()
-            mock_llm.bind_tools.return_value.ainvoke = AsyncMock(return_value=mock_response)
-            MockLLM.return_value = mock_llm
-            result = await route_node(state)
+        result = await route_node(state)
 
     assert "route" in result
     assert isinstance(result["route"], dict)
@@ -88,19 +88,13 @@ async def test_hotel_agent_returns_list():
     state = _make_full_state()
     state["attractions"] = [{"name": "大熊猫基地", "address": "成华区锦官路"}]
 
-    mock_response = MagicMock()
-    mock_response.tool_calls = []
-    mock_response.content = '[{"name": "香格里拉酒店", "price_per_night": 1200, "rating": 4.9}]'
-
-    with patch("app.agent.travel.hotel.get_travel_mcp_client") as mock_fn:
+    content = '[{"name": "香格里拉酒店", "price_per_night": 1200, "rating": 4.9}]'
+    with patch("app.agent.travel.hotel.get_travel_mcp_client") as mock_fn, \
+         patch(_LLM_PATCH, return_value=_mock_llm(content)):
         mock_client = AsyncMock()
         mock_client.get_tools = AsyncMock(return_value=[])
         mock_fn.return_value = mock_client
-        with patch("app.agent.travel.hotel.ChatQwen") as MockLLM:
-            mock_llm = MagicMock()
-            mock_llm.bind_tools.return_value.ainvoke = AsyncMock(return_value=mock_response)
-            MockLLM.return_value = mock_llm
-            result = await hotel_node(state)
+        result = await hotel_node(state)
 
     assert "hotels" in result
     assert isinstance(result["hotels"], list)
@@ -111,19 +105,13 @@ async def test_food_agent_returns_list():
     from app.agent.travel.food import food_node
 
     state = _make_full_state()
-    mock_response = MagicMock()
-    mock_response.tool_calls = []
-    mock_response.content = '[{"name": "大龙燚火锅", "cuisine": "火锅", "avg_price": 120}]'
-
-    with patch("app.agent.travel.food.get_travel_mcp_client") as mock_fn:
+    content = '[{"name": "大龙燚火锅", "cuisine": "火锅", "avg_price_per_person": 120}]'
+    with patch("app.agent.travel.food.get_travel_mcp_client") as mock_fn, \
+         patch(_LLM_PATCH, return_value=_mock_llm(content)):
         mock_client = AsyncMock()
         mock_client.get_tools = AsyncMock(return_value=[])
         mock_fn.return_value = mock_client
-        with patch("app.agent.travel.food.ChatQwen") as MockLLM:
-            mock_llm = MagicMock()
-            mock_llm.bind_tools.return_value.ainvoke = AsyncMock(return_value=mock_response)
-            MockLLM.return_value = mock_llm
-            result = await food_node(state)
+        result = await food_node(state)
 
     assert "foods" in result
     assert isinstance(result["foods"], list)
@@ -137,13 +125,10 @@ async def test_strategy_agent_returns_plan():
     state["attractions"] = [{"name": "大熊猫基地"}]
     state["route"] = {"days": [{"day": 1, "attractions": ["大熊猫基地"]}]}
     state["hotels"] = [{"name": "香格里拉酒店", "price_per_night": 1200}]
-    state["foods"] = [{"name": "大龙燚火锅", "meal_type": "dinner"}]
+    state["foods"] = [{"name": "大龙燚火锅"}]
 
-    mock_response = MagicMock()
-    mock_response.content = "# 成都3日游攻略\n\n## Day 1\n大熊猫基地..."
-
-    with patch("app.agent.travel.strategy.ChatQwen") as MockLLM:
-        MockLLM.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    content = "# 成都3日游攻略\n\n## Day 1\n大熊猫基地..."
+    with patch(_LLM_PATCH, return_value=_mock_llm(content)):
         result = await strategy_node(state)
 
     assert "final_plan" in result
@@ -159,11 +144,8 @@ async def test_strategy_agent_english_output():
     state["hotels"] = []
     state["foods"] = []
 
-    mock_response = MagicMock()
-    mock_response.content = "# Chengdu 3-Day Travel Guide\n\n## Day 1..."
-
-    with patch("app.agent.travel.strategy.ChatQwen") as MockLLM:
-        MockLLM.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    content = "# Chengdu 3-Day Travel Guide\n\n## Day 1..."
+    with patch(_LLM_PATCH, return_value=_mock_llm(content)):
         result = await strategy_node(state)
 
     assert "final_plan" in result

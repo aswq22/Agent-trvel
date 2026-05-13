@@ -3,10 +3,10 @@ from textwrap import dedent
 from typing import Dict, Any, List
 
 from langchain_core.messages import HumanMessage, BaseMessage
-from langchain_qwq import ChatQwen
 from loguru import logger
 
 from app.config import config
+from app.core.llm_factory import LLMFactory
 from app.agent.travel.state import TravelPlanState
 from app.agent.travel.mcp_utils import get_travel_mcp_client
 from app.agent.travel.attraction import _run_react_loop, _parse_json_list
@@ -62,7 +62,7 @@ async def hotel_node(state: TravelPlanState) -> Dict[str, Any]:
         mcp_client = await get_travel_mcp_client(["ctrip"])
         tools = await mcp_client.get_tools()
         tool_map = {t.name: t for t in tools}
-        llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, base_url=config.dashscope_api_base, temperature=0)
+        llm = LLMFactory.create_travel_llm(temperature=0)
         llm_with_tools = llm.bind_tools(tools) if tools else llm
 
         prompt = _PROMPT[lang].format(

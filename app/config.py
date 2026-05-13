@@ -37,7 +37,27 @@ class Settings(BaseSettings):
 
     # RAG 配置
     rag_top_k: int = 3
-    rag_model: str = "qwen-max"  # 使用快速响应模型，不带扩展思考
+    rag_model: str = "qwen-max"  # 聊天/RAG 使用的模型
+
+    # DeepSeek 配置（旅游 Agent 默认使用，API 兼容 OpenAI 格式）
+    deepseek_api_key: str = ""
+    deepseek_api_base: str = "https://api.deepseek.com/v1"
+    deepseek_model: str = "deepseek-v4-pro"
+
+    @property
+    def travel_llm_api_key(self) -> str:
+        """旅游 Agent 使用的 API Key：优先 DeepSeek，fallback DashScope"""
+        return self.deepseek_api_key or self.dashscope_api_key
+
+    @property
+    def travel_llm_api_base(self) -> str:
+        """旅游 Agent 使用的 API Base URL"""
+        return self.deepseek_api_base if self.deepseek_api_key else self.dashscope_api_base
+
+    @property
+    def travel_llm_model(self) -> str:
+        """旅游 Agent 使用的模型名"""
+        return self.deepseek_model if self.deepseek_api_key else self.rag_model
 
     # 文档分块配置
     chunk_max_size: int = 800

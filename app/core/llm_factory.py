@@ -16,9 +16,14 @@ from loguru import logger
 
 
 class LLMFactory:
-    """LLM 工厂类 - 使用 OpenAI 兼容模式"""
+    """LLM 工厂类 - 使用 OpenAI 兼容模式
 
-    # 阿里云 DashScope OpenAI 兼容模式 URL
+    支持的模型提供商（修改 .env 即可切换）：
+    - DeepSeek:         DEEPSEEK_API_KEY + DEEPSEEK_MODEL=deepseek-v4-pro
+    - 阿里云 DashScope:  DASHSCOPE_API_KEY + RAG_MODEL=qwen-max
+    - OpenAI:           修改 base_url 和 api_key
+    """
+
     DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
     @staticmethod
@@ -29,24 +34,41 @@ class LLMFactory:
         base_url: str | None = None,
         api_key: str | None = None,
     ) -> ChatOpenAI:
+        """通用聊天模型（RAG / 通用问答）"""
         model = model or config.dashscope_model
         base_url = base_url or LLMFactory.DASHSCOPE_BASE_URL
         api_key = api_key or config.dashscope_api_key
 
-        # 参考：https://help.aliyun.com/zh/model-studio/getting-started/models
-        extra_body = {}
-        extra_body["stream"] = streaming
-
-        llm = ChatOpenAI(
+        return ChatOpenAI(
             model=model,
             temperature=temperature,
             streaming=streaming,
             base_url=base_url,
             api_key=api_key,
-            extra_body=extra_body if extra_body else None,
+            extra_body={"stream": streaming},
         )
 
-        return llm
+    @staticmethod
+    def create_travel_llm(temperature: float = 0) -> ChatOpenAI:
+        """旅游 Agent 专用 LLM。
+
+        优先使用 DeepSeek（DEEPSEEK_API_KEY 非空时），
+        否则 fallback 到 DashScope（DASHSCOPE_API_KEY）。
+        """
+        model    = config.travel_llm_model
+        api_key  = config.travel_llm_api_key
+        base_url = config.travel_llm_api_base
+
+        logger.debug("旅游 LLM: model={} base={}", model, base_url.split("/")[2])
+
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            streaming=False,        # 旅游 Agent 使用非流式（tool-call 模式）
+            base_url=base_url,
+            api_key=api_key,
+        )
+
 
 # 全局 LLM 工厂实例
 llm_factory = LLMFactory()

@@ -3,10 +3,9 @@ from textwrap import dedent
 from typing import Dict, Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_qwq import ChatQwen
 from loguru import logger
 
-from app.config import config
+from app.core.llm_factory import LLMFactory
 from app.agent.travel.state import TravelPlanState, TripParams
 
 _SYSTEM = dedent("""
@@ -32,7 +31,7 @@ _parser_prompt = ChatPromptTemplate.from_messages([
 
 async def _invoke_parser_chain(user_input: str) -> TripParams:
     """Build and execute parsing chain; extracted for testability."""
-    llm = ChatQwen(model=config.rag_model, api_key=config.dashscope_api_key, base_url=config.dashscope_api_base, temperature=0)
+    llm = LLMFactory.create_travel_llm(temperature=0)
     chain = _parser_prompt | llm.with_structured_output(TripParams)
     return await chain.ainvoke({"user_input": user_input})
 
