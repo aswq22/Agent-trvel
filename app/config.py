@@ -51,6 +51,10 @@ class Settings(BaseSettings):
 
     # Gaode Maps API
     gaode_api_key: str = ""
+    # 高德地图 JS API Key（用于前端地图展示）
+    amap_js_key: str = ""
+    # 分享链接数据库 URL
+    share_db_url: str = "sqlite:///data/shares.db"
 
     # 美团开放平台（企业资质，申请：https://open.meituan.com）
     meituan_app_key: str = ""
