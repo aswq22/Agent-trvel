@@ -1,13 +1,38 @@
 # app/api/travel.py
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Request, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from loguru import logger
 
-from app.models.travel import TripRequest
+from app.config import config
+from app.db.share_store import save_share, get_share
+from app.models.travel import TripRequest, ShareRequest, ShareResponse
 from app.services.travel_service import travel_service
 
 router = APIRouter()
+
+
+@router.get("/travel/map-key")
+async def get_map_key():
+    """Return the Amap JS API key."""
+    return {"key": config.amap_js_key}
+
+
+@router.post("/travel/share", response_model=ShareResponse)
+async def create_share(request: Request, body: ShareRequest):
+    """Persist a travel plan and return a shareable URL."""
+    share_id = save_share(body.plan, body.structured_plan)
+    base = str(request.base_url).rstrip("/")
+    return ShareResponse(share_id=share_id, url=f"{base}/?share={share_id}")
+
+
+@router.get("/travel/share/{share_id}")
+async def read_share(share_id: str):
+    """Retrieve a saved travel plan by share_id."""
+    data = get_share(share_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="分享链接不存在或已失效")
+    return data
 
 
 @router.post("/travel/plan")

@@ -72,3 +72,62 @@ def test_travel_plan_endpoint_exists():
     client = TestClient(app)
     resp = client.post("/api/travel/plan", json={})
     assert resp.status_code != 404
+
+
+def test_map_key_endpoint():
+    import sys
+    from unittest.mock import MagicMock, patch
+    for mod in ["pymilvus", "langchain_milvus", "langchain_milvus.function"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from fastapi.testclient import TestClient
+    with patch("app.api.travel.config") as api_cfg, \
+         patch("app.db.share_store.create_tables"):
+        api_cfg.amap_js_key = "test-amap-key"
+        from app.main import app
+        client = TestClient(app)
+        resp = client.get("/api/travel/map-key")
+        assert resp.status_code == 200
+        assert resp.json()["key"] == "test-amap-key"
+
+
+def test_share_create_and_read():
+    import sys
+    from unittest.mock import MagicMock, patch
+    for mod in ["pymilvus", "langchain_milvus", "langchain_milvus.function"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    saved = {}
+
+    def fake_save(plan, structured):
+        fake_id = "test-share-id-123"
+        saved[fake_id] = {"plan": plan, "structured_plan": structured}
+        return fake_id
+
+    def fake_get(share_id):
+        return saved.get(share_id)
+
+    with patch("app.api.travel.save_share", fake_save), \
+         patch("app.api.travel.get_share", fake_get), \
+         patch("app.db.share_store.create_tables"):
+        client = TestClient(app)
+        resp = client.post("/api/travel/share", json={
+            "plan": "# 成都攻略",
+            "structured_plan": {"days": [], "total_cost": 1000.0, "tips": []}
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["share_id"] == "test-share-id-123"
+        assert "test-share-id-123" in data["url"]
+
+        resp2 = client.get(f"/api/travel/share/{data['share_id']}")
+        assert resp2.status_code == 200
+        assert resp2.json()["plan"] == "# 成都攻略"
+
+        resp3 = client.get("/api/travel/share/nonexistent-id")
+        assert resp3.status_code == 404

@@ -9,7 +9,7 @@ import os
 
 from app.config import config
 from loguru import logger
-from app.api import health, travel
+from app.api import health, travel, chat
 
 
 @asynccontextmanager
@@ -19,8 +19,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"监听地址: http://{config.host}:{config.port}")
     logger.info(f"API 文档: http://{config.host}:{config.port}/docs")
     logger.info("=" * 60)
+    from app.db.share_store import create_tables
+    create_tables()
+    logger.info("Share DB 初始化完成")
     yield
-    logger.info(f"👋 {config.app_name} 关闭")
+    logger.info(f"{config.app_name} 已关闭")
 
 
 app = FastAPI(
@@ -40,6 +43,7 @@ app.add_middleware(
 
 app.include_router(health.router, tags=["健康检查"])
 app.include_router(travel.router, prefix="/api", tags=["旅游规划"])
+app.include_router(chat.router, prefix="/api", tags=["聊天"])
 
 static_dir = "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")

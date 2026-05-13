@@ -16,3 +16,13 @@ class TripRequest(BaseModel):
                 "session_id": "session-001"
             }
         }
+
+
+class ShareRequest(BaseModel):
+    plan: str = Field(description="Markdown 攻略文本")
+    structured_plan: dict = Field(default_factory=dict, description="结构化攻略 JSON")
+
+
+class ShareResponse(BaseModel):
+    share_id: str
+    url: str
