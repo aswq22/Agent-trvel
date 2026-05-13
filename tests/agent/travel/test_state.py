@@ -44,6 +44,7 @@ def test_travel_plan_state_typing():
         "hotels": [],
         "foods": [],
         "final_plan": "",
+        "structured_plan": None,
         "errors": {},
         "messages": [],
     }
@@ -62,6 +63,7 @@ def test_travel_mcp_servers_config():
 
 
 def test_travel_plan_state_structured_plan():
+    # None is valid (before strategy runs)
     state: TravelPlanState = {
         "user_input": "test",
         "trip_params": None,
@@ -74,4 +76,9 @@ def test_travel_plan_state_structured_plan():
         "errors": {},
         "messages": [],
     }
-    assert state["structured_plan"] is None
+    assert state.get("structured_plan") is None
+
+    # dict value is also valid (after strategy runs)
+    state["structured_plan"] = {"days": [{"day": 1}], "total_cost": 3000.0, "tips": []}
+    assert state["structured_plan"]["total_cost"] == 3000.0
+    assert len(state["structured_plan"]["days"]) == 1
