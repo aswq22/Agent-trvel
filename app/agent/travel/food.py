@@ -13,28 +13,34 @@ from app.agent.travel.attraction import _run_react_loop, _parse_json_list
 
 _PROMPT = {
     "zh": dedent("""
-        你是美食推荐专家。为{destination}的旅行安排美食计划。
+        你是{destination}本地美食专家。推荐当地最值得去的餐厅，供游客自由选择。
 
         偏好：{preferences}
-        人均餐饮预算：{food_budget:.0f}元/天
+        人均餐饮预算参考：{food_budget:.0f}元/餐
         活动区域：{areas}
 
         使用 dianping_restaurant_search 搜索餐厅，用 dianping_menu 查看招牌菜。
-        按早/午/晚餐推荐，覆盖不同菜系和价位。
+        推荐 10-15 家不同菜系、不同价位的特色餐厅，覆盖景区周边及当地网红店。
 
-        以 JSON 数组格式输出，每项包含：name、cuisine、avg_price_per_person、address、signature_dishes、meal_type（breakfast/lunch/dinner）、reason。
+        以 JSON 数组格式输出，每项包含：
+        name、cuisine（菜系）、avg_price_per_person（人均价格，整数）、address、
+        signature_dishes（招牌菜列表）、reason（推荐理由，一句话）、
+        lng（经度，浮点数）、lat（纬度，浮点数）。
+        坐标从搜索结果中提取，若无则省略这两个字段。
         只输出 JSON，不要其他文字。
     """).strip(),
     "en": dedent("""
-        You are a food expert. Plan dining for a trip to {destination}.
+        You are a local food expert in {destination}. Recommend the best restaurants for tourists to freely choose from.
 
         Preferences: {preferences}
-        Daily food budget: {food_budget:.0f} CNY/person
+        Budget reference: {food_budget:.0f} CNY/meal/person
         Activity areas: {areas}
 
-        Use dianping_restaurant_search and dianping_menu. Cover breakfast, lunch, and dinner.
+        Use dianping_restaurant_search and dianping_menu. Recommend 10-15 restaurants of varied cuisines and price ranges.
 
-        Output as JSON array: name, cuisine, avg_price_per_person, address, signature_dishes, meal_type, reason.
+        Output as JSON array: name, cuisine, avg_price_per_person (integer), address,
+        signature_dishes (list), reason (one sentence), lng (float), lat (float).
+        Extract coordinates from search results; omit if unavailable.
         JSON only.
     """).strip(),
 }

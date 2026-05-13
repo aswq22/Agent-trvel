@@ -66,7 +66,9 @@ def _build_context(state: TravelPlanState, lang: str) -> str:
 
 
 def _build_structured_plan(state: TravelPlanState) -> dict:
-    """Assemble structured day-by-day plan from state data (no extra LLM call)."""
+    """Assemble structured plan: single hotel, 4-5 attractions/day, flat food list."""
+    from datetime import datetime, timedelta
+
     trip = state.get("trip_params")
     if not trip:
         return {}
@@ -78,14 +80,31 @@ def _build_structured_plan(state: TravelPlanState) -> dict:
     budget = trip.budget
     start_date = trip.start_date
 
-    per_day_attr = max(1, (len(attractions) + days_count - 1) // days_count)
-    per_day_food = max(2, (len(food_list) + days_count - 1) // days_count)
+    # ── 酒店选项（最多展示3家，用户自选）──────────────────────
+    hotel_options = []
+    for h in hotels[:3]:
+        opt: dict = {
+            "name": h.get("name", ""),
+            "stars": h.get("stars", 0),
+            "rating": h.get("rating", ""),
+            "price_per_night": h.get("price_per_night", 0),
+            "address": h.get("address", ""),
+            "amenities": h.get("amenities", []),
+            "reason": h.get("reason", ""),
+        }
+        if h.get("lng"):
+            opt["lng"] = h["lng"]
+        if h.get("lat"):
+            opt["lat"] = h["lat"]
+        hotel_options.append(opt)
+
+    # ── 按天分配景点（每天 4-5 个）────────────────────────────
+    per_day = max(1, (len(attractions) + days_count - 1) // days_count)
 
     days = []
     for i in range(1, days_count + 1):
         if start_date:
             try:
-                from datetime import datetime, timedelta
                 base = datetime.strptime(start_date, "%Y-%m-%d")
                 day_date = (base + timedelta(days=i - 1)).strftime("%Y-%m-%d")
             except ValueError:
@@ -93,50 +112,62 @@ def _build_structured_plan(state: TravelPlanState) -> dict:
         else:
             day_date = f"第{i}天"
 
-        day_attr_raw = attractions[(i - 1) * per_day_attr: i * per_day_attr]
+        day_attrs_raw = attractions[(i - 1) * per_day: i * per_day]
         day_attractions = []
-        for a in day_attr_raw:
+        for a in day_attrs_raw:
             highlights = a.get("highlights", "")
             tip = highlights[0] if isinstance(highlights, list) and highlights else str(highlights)
-            entry: dict = {"name": a.get("name", ""), "duration": "2h", "tip": tip}
+            entry: dict = {
+                "name": a.get("name", ""),
+                "address": a.get("address", ""),
+                "duration": "2h",
+                "tip": tip,
+                "rating": a.get("rating", ""),
+                "ticket_price": a.get("ticket_price", ""),
+            }
             if a.get("lng"):
                 entry["lng"] = a["lng"]
             if a.get("lat"):
                 entry["lat"] = a["lat"]
             day_attractions.append(entry)
 
-        hotel_raw = hotels[0] if hotels else {}
-        day_hotel: dict = {
-            "name": hotel_raw.get("name", ""),
-            "price_per_night": hotel_raw.get("price_per_night", 0),
-        }
-        if hotel_raw.get("lng"):
-            day_hotel["lng"] = hotel_raw["lng"]
-        if hotel_raw.get("lat"):
-            day_hotel["lat"] = hotel_raw["lat"]
-
-        meal_type_map = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}
-        day_foods_raw = food_list[(i - 1) * per_day_food: i * per_day_food]
-        meals = [
-            {
-                "type": meal_type_map.get(f.get("meal_type", "lunch"), f.get("meal_type", "午餐")),
-                "name": f.get("name", ""),
-                "price": f.get("avg_price_per_person", 80),
-            }
-            for f in day_foods_raw
-        ]
+        # 路线说明：酒店出发 → 各景点 → 返回酒店
+        if day_attractions:
+            names = [a["name"] for a in day_attractions if a.get("name")]
+            route_note = "酒店出发 → " + " → ".join(names) + " → 返回酒店"
+        else:
+            route_note = "行程待规划"
 
         days.append({
             "day": i,
             "date": day_date,
             "attractions": day_attractions,
-            "hotel": day_hotel,
-            "meals": meals,
+            "route_note": route_note,
             "estimated_cost": round(budget / days_count),
         })
 
+    # ── 美食推荐（平铺列表，用户自选）────────────────────────
+    foods = []
+    for f in food_list:
+        entry: dict = {
+            "name": f.get("name", ""),
+            "cuisine": f.get("cuisine", ""),
+            "avg_price": f.get("avg_price_per_person", 80),
+            "address": f.get("address", ""),
+            "signature": f.get("signature_dishes", []),
+            "reason": f.get("reason", ""),
+        }
+        if f.get("lng"):
+            entry["lng"] = f["lng"]
+        if f.get("lat"):
+            entry["lat"] = f["lat"]
+        foods.append(entry)
+
     return {
+        "hotel_options": hotel_options,
+        "selected_hotel": hotel_options[0] if hotel_options else {},
         "days": days,
+        "foods": foods,
         "total_cost": budget,
         "tips": ["提前预订热门景点门票", "注意当地天气变化", "保留部分应急资金"],
     }

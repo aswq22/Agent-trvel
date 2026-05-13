@@ -743,6 +743,38 @@ uv run pytest tests/agent/travel/ tests/api/ tests/db/ -v
 
 ## 11. 变更记录
 
+### v1.2.3 — 2026-05-13 | 规划体验全面优化
+
+**改进：**
+
+1. **景点数量**：每天 4-5 个景点（原每天 2 个，改为 `days × 5`）
+2. **酒店选项**：全程入住单一酒店，展示 3 家选项供用户点选，地图随选择更新标注
+3. **路线说明**：每天卡片显示「酒店出发 → 景点1 → 景点2 → … → 返回酒店」明确路线
+4. **美食独立展示**：去掉每天卡片中的餐厅信息，改为底部独立「美食推荐」列表（10-15 家），附「在地图上显示」切换按钮
+5. **地图增强**：景点标注改为带序号的彩色数字气泡，路线折线包含酒店出发/返回，美食标注可单独切换
+
+**结构化数据变更（`structured_plan`）：**
+
+| 字段 | 变化 |
+|------|------|
+| `hotel_options` | 新增，最多 3 家酒店供选择 |
+| `selected_hotel` | 新增，默认选中第一家 |
+| `days[].route_note` | 新增，当天路线文字说明 |
+| `days[].attractions[].address` | 新增，景点地址 |
+| `days[].attractions[].ticket_price` | 新增，门票参考价格 |
+| `days[].meals` | 移除 |
+| `days[].hotel` | 移除（改为顶部酒店选项区） |
+| `foods` | 新增，平铺餐厅列表（替代原来按天分配） |
+
+**涉及文件：**
+- `app/agent/travel/attraction.py` — 景点数量 `days*5`
+- `app/agent/travel/food.py` — 改为推荐 10-15 家餐厅的平铺列表
+- `app/agent/travel/strategy.py` — `_build_structured_plan()` 全面重写
+- `static/app.js` — `_showResult`/`_renderDayCard` 重写，新增酒店/美食区块、美食地图切换
+- `static/styles.css` — 新增酒店选项卡、景点序号、美食列表样式
+
+---
+
 ### v1.2.2 — 2026-05-13 | 高德地图 JS API 安全密钥支持
 
 **修复：** 高德地图 JS API 2.0 要求在加载 SDK 前设置 `securityJsCode`，否则地图无法初始化。

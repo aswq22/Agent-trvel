@@ -92,7 +92,7 @@ async def attraction_node(state: TravelPlanState) -> Dict[str, Any]:
     destination = trip.destination if trip else ""
     days = trip.days if trip else 3
     preferences = ", ".join(trip.preferences) if trip and trip.preferences else ("无特定偏好" if lang == "zh" else "none")
-    num = min(days * 2, 8)
+    num = days * 5  # 每天安排 4-5 个景点
 
     try:
         mcp_client = await get_travel_mcp_client(["gaode", "dianping"])

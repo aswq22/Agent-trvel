@@ -1760,6 +1760,233 @@ body {
 
 /* ═══ 打印样式 ══════════════════════════════════════════ */
 
+/* ═══ 酒店选项区块 ═══════════════════════════════════════ */
+
+.section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #3c4043;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hotel-options-section {
+    padding: 16px 20px 8px;
+    border-bottom: 1px solid #f1f3f4;
+}
+
+.hotel-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hotel-option-card {
+    border: 1px solid #dadce0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.hotel-option-card:hover { border-color: #1a73e8; background: #f8fbff; }
+
+.hotel-option-card.selected {
+    border-color: #1a73e8;
+    background: #e8f0fe;
+}
+
+.hotel-option-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #202124;
+    margin-bottom: 4px;
+}
+
+.hotel-option-meta {
+    font-size: 12px;
+    color: #1a73e8;
+    margin-bottom: 4px;
+}
+
+.hotel-option-addr {
+    font-size: 12px;
+    color: #80868b;
+    margin-bottom: 4px;
+}
+
+.hotel-option-reason {
+    font-size: 12px;
+    color: #5f6368;
+    font-style: italic;
+    margin-bottom: 4px;
+}
+
+.hotel-option-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tag {
+    padding: 2px 8px;
+    background: #f1f3f4;
+    border-radius: 10px;
+    font-size: 11px;
+    color: #3c4043;
+}
+
+/* ═══ 景点列表（新版）══════════════════════════════════════ */
+
+.attr-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.attr-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.attr-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    line-height: 22px;
+    text-align: center;
+    background: #1a73e8;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.attr-detail {
+    flex: 1;
+    font-size: 13px;
+    color: #3c4043;
+}
+
+.attr-meta {
+    font-size: 12px;
+    color: #80868b;
+    margin-left: 6px;
+}
+
+.attr-addr {
+    font-size: 12px;
+    color: #80868b;
+    margin-top: 2px;
+}
+
+.attr-tip {
+    font-size: 12px;
+    color: #f29900;
+    margin-top: 2px;
+}
+
+.route-note {
+    font-size: 12px;
+    color: #5f6368;
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    line-height: 1.6;
+    word-break: break-all;
+}
+
+/* ═══ 美食推荐区块 ══════════════════════════════════════════ */
+
+.food-recommend-section {
+    padding: 16px 20px;
+    border-top: 1px solid #dadce0;
+    margin-top: 8px;
+}
+
+.food-map-toggle {
+    margin-left: auto;
+    padding: 4px 12px;
+    border: 1px solid #1a73e8;
+    border-radius: 12px;
+    background: #fff;
+    color: #1a73e8;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.food-map-toggle:hover { background: #e8f0fe; }
+
+.food-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.food-item {
+    border: 1px solid #f1f3f4;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+}
+
+.food-item-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.food-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.food-cuisine {
+    font-size: 12px;
+    color: #80868b;
+    background: #f1f3f4;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+.food-price {
+    font-size: 12px;
+    color: #1a73e8;
+    font-weight: 500;
+    margin-left: auto;
+}
+
+.food-addr {
+    font-size: 12px;
+    color: #80868b;
+    margin-bottom: 3px;
+}
+
+.food-signature {
+    font-size: 12px;
+    color: #5f6368;
+    margin-bottom: 3px;
+}
+
+.food-reason {
+    font-size: 12px;
+    color: #5f6368;
+    font-style: italic;
+}
+
+/* ═══ 打印样式 ══════════════════════════════════════════════ */
+
 @media print {
     .sidebar,
     .travel-toolbar,
@@ -1767,6 +1994,7 @@ body {
     .travel-progress,
     .map-panel,
     .replan-btn,
+    .food-map-toggle,
     .current-mode-badge { display: none !important; }
 
     .travel-body { display: block; }

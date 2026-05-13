@@ -1025,18 +1025,61 @@ class TravelUI {
             return;
         }
 
+        // ── 酒店选项区块 ──────────────────────────────────────
+        const hotelSectionId = 'hotelOptionsSection';
+        let hotelSection = document.getElementById(hotelSectionId);
+        if (!hotelSection) {
+            hotelSection = document.createElement('div');
+            hotelSection.id = hotelSectionId;
+            this.dayCardsEl.parentNode.insertBefore(hotelSection, this.dayCardsEl);
+        }
+        hotelSection.innerHTML = this._renderHotelOptions(structured.hotel_options || []);
+
+        // 酒店选择事件
+        hotelSection.querySelectorAll('.hotel-option-card').forEach(card => {
+            card.addEventListener('click', () => {
+                hotelSection.querySelectorAll('.hotel-option-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                const idx = parseInt(card.dataset.idx);
+                if (structured.hotel_options?.[idx]) {
+                    this._updateSelectedHotel(structured.hotel_options[idx]);
+                }
+            });
+        });
+
+        // ── 行程卡片 ──────────────────────────────────────────
         if (this.dayCardsEl) {
             this.dayCardsEl.innerHTML = structured.days.map(d => this._renderDayCard(d)).join('');
             this.dayCardsEl.querySelectorAll('.day-card-header').forEach(header => {
                 header.addEventListener('click', () => {
                     const card = header.closest('.day-card');
                     card.classList.toggle('expanded');
-                    const dayNum = parseInt(card.dataset.day);
-                    this._highlightDay(dayNum);
+                    this._highlightDay(parseInt(card.dataset.day));
                 });
             });
         }
 
+        // ── 美食推荐区块 ──────────────────────────────────────
+        const foodSectionId = 'foodRecommendSection';
+        let foodSection = document.getElementById(foodSectionId);
+        if (!foodSection) {
+            foodSection = document.createElement('div');
+            foodSection.id = foodSectionId;
+            this.resultEl.appendChild(foodSection);
+        }
+        foodSection.innerHTML = this._renderFoodList(structured.foods || []);
+
+        // 美食地图标注切换
+        const foodToggle = document.getElementById('foodMapToggle');
+        if (foodToggle) {
+            foodToggle.addEventListener('click', () => {
+                this.foodMarkersVisible = !this.foodMarkersVisible;
+                foodToggle.textContent = this.foodMarkersVisible ? '隐藏地图标注' : '在地图上显示';
+                this._toggleFoodMarkers(this.foodMarkersVisible);
+            });
+        }
+
+        // ── 费用摘要 ──────────────────────────────────────────
         const body = this._buildRequestBody();
         if (this.costSummaryEl) {
             this.costSummaryEl.textContent =
@@ -1044,31 +1087,91 @@ class TravelUI {
         }
     }
 
+    _renderHotelOptions(options) {
+        if (!options.length) return '';
+        return `
+        <div class="hotel-options-section">
+            <div class="section-title">🏨 酒店选项（全程入住，点击选择）</div>
+            <div class="hotel-options-list">
+                ${options.map((h, idx) => `
+                <div class="hotel-option-card${idx === 0 ? ' selected' : ''}" data-idx="${idx}">
+                    <div class="hotel-option-name">${this._esc(h.name)}</div>
+                    <div class="hotel-option-meta">
+                        ${h.stars ? '⭐'.repeat(Math.min(h.stars, 5)) : ''}
+                        ${h.rating ? ` · 评分 ${h.rating}` : ''}
+                        ${h.price_per_night ? ` · ¥${h.price_per_night}/晚` : ''}
+                    </div>
+                    ${h.address ? `<div class="hotel-option-addr">📍 ${this._esc(h.address)}</div>` : ''}
+                    ${h.reason ? `<div class="hotel-option-reason">${this._esc(h.reason)}</div>` : ''}
+                    ${h.amenities?.length ? `<div class="hotel-option-tags">${h.amenities.slice(0,4).map(a => `<span class="tag">${this._esc(a)}</span>`).join('')}</div>` : ''}
+                </div>`).join('')}
+            </div>
+        </div>`;
+    }
+
     _renderDayCard(day) {
         const date = day.date || `第${day.day}天`;
-        const attrHtml = (day.attractions || []).map(a =>
-            `<li><strong>${this._esc(a.name)}</strong>${a.duration ? ` · ${a.duration}` : ''}${a.tip ? ` <em>💡${this._esc(a.tip)}</em>` : ''}</li>`
-        ).join('');
-        const mealHtml = (day.meals || []).map(m =>
-            `<li>${this._esc(m.type)} · ${this._esc(m.name)}${m.price ? ` ¥${m.price}` : ''}</li>`
-        ).join('');
-        const hotel = day.hotel || {};
-        const hotelHtml = hotel.name
-            ? `<div class="card-section"><span class="card-section-icon">🏨</span><ul><li>${this._esc(hotel.name)}${hotel.price_per_night ? ` ¥${hotel.price_per_night}/晚` : ''}</li></ul></div>`
+        const attrHtml = (day.attractions || []).map((a, i) => `
+            <li class="attr-item">
+                <span class="attr-num">${i + 1}</span>
+                <div class="attr-detail">
+                    <strong>${this._esc(a.name)}</strong>
+                    ${a.ticket_price ? `<span class="attr-meta">门票 ${this._esc(String(a.ticket_price))}</span>` : ''}
+                    ${a.duration ? `<span class="attr-meta">约 ${a.duration}</span>` : ''}
+                    ${a.address ? `<div class="attr-addr">📍 ${this._esc(a.address)}</div>` : ''}
+                    ${a.tip ? `<div class="attr-tip">💡 ${this._esc(a.tip)}</div>` : ''}
+                </div>
+            </li>`).join('');
+
+        const routeHtml = day.route_note
+            ? `<div class="route-note">🗺️ ${this._esc(day.route_note)}</div>`
             : '';
 
         return `<div class="day-card expanded" data-day="${day.day}">
             <div class="day-card-header">
                 <span class="day-card-title">📅 第 ${day.day} 天 · ${this._esc(date)}</span>
-                <span class="day-card-cost">${day.estimated_cost ? `¥${day.estimated_cost}` : ''}</span>
+                <span class="day-card-cost">${day.estimated_cost ? `预算 ¥${day.estimated_cost}` : ''}</span>
                 <span class="day-card-toggle">▼</span>
             </div>
             <div class="day-card-body">
-                ${attrHtml ? `<div class="card-section"><span class="card-section-icon">🏛️</span><ul>${attrHtml}</ul></div>` : ''}
-                ${mealHtml ? `<div class="card-section"><span class="card-section-icon">🍜</span><ul>${mealHtml}</ul></div>` : ''}
-                ${hotelHtml}
+                ${routeHtml}
+                ${attrHtml ? `<ul class="attr-list">${attrHtml}</ul>` : '<p style="color:#80868b">暂无景点数据</p>'}
             </div>
         </div>`;
+    }
+
+    _renderFoodList(foods) {
+        if (!foods.length) return '';
+        return `
+        <div class="food-recommend-section">
+            <div class="section-title">
+                🍜 美食推荐（自由选择）
+                <button class="food-map-toggle" id="foodMapToggle">在地图上显示</button>
+            </div>
+            <div class="food-list">
+                ${foods.map(f => `
+                <div class="food-item">
+                    <div class="food-item-main">
+                        <span class="food-name">${this._esc(f.name)}</span>
+                        <span class="food-cuisine">${this._esc(f.cuisine)}</span>
+                        ${f.avg_price ? `<span class="food-price">人均 ¥${f.avg_price}</span>` : ''}
+                    </div>
+                    ${f.address ? `<div class="food-addr">📍 ${this._esc(f.address)}</div>` : ''}
+                    ${Array.isArray(f.signature) && f.signature.length
+                        ? `<div class="food-signature">招牌：${f.signature.slice(0,3).map(s => this._esc(s)).join('、')}</div>`
+                        : ''}
+                    ${f.reason ? `<div class="food-reason">${this._esc(f.reason)}</div>` : ''}
+                </div>`).join('')}
+            </div>
+        </div>`;
+    }
+
+    _updateSelectedHotel(hotel) {
+        // 更新地图上的酒店标注
+        this._clearHotelMarkers();
+        if (hotel.lng && hotel.lat) {
+            this._addMarkers([hotel], 'hotel');
+        }
     }
 
     _esc(str) {
@@ -1199,8 +1302,12 @@ class TravelUI {
         if (!this.mapInstance) return;
         this.markers.forEach(m => m.setMap(null));
         this.polylines.forEach(p => p.setMap(null));
+        (this.foodMarkers || []).forEach(m => m.setMap(null));
         this.markers = [];
         this.polylines = [];
+        this.foodMarkers = [];
+        this._foodData = [];
+        this.foodMarkersVisible = false;
     }
 
     _addMarkers(items, type) {
@@ -1234,31 +1341,69 @@ class TravelUI {
     _renderMapFromStructured(structured) {
         if (!this.mapInstance || !window.AMap || !structured?.days) return;
 
-        const COLORS = ['#4A90E2', '#E2574A', '#50C878', '#FF8C00', '#9B59B6', '#1ABC9C', '#F39C12'];
+        const COLORS = ['#4A90E2', '#E2574A', '#FF8C00', '#9B59B6', '#1ABC9C', '#F39C12', '#E91E63'];
         const allLngLat = [];
 
+        // ── 酒店标注（选中的第一家）────────────────────────────
+        const hotel = structured.selected_hotel || structured.hotel_options?.[0];
+        if (hotel?.lng && hotel?.lat) {
+            this._addMarkers([hotel], 'hotel');
+            allLngLat.push([hotel.lng, hotel.lat]);
+        }
+
+        // ── 每天景点 + 路线折线（酒店→景点→酒店）──────────────
         structured.days.forEach((day, idx) => {
             const pts = [];
+
+            // 从酒店出发
+            if (hotel?.lng && hotel?.lat) pts.push([hotel.lng, hotel.lat]);
+
             (day.attractions || []).forEach(a => {
-                if (a.lng && a.lat) { pts.push([a.lng, a.lat]); allLngLat.push([a.lng, a.lat]); }
+                if (a.lng && a.lat) {
+                    pts.push([a.lng, a.lat]);
+                    allLngLat.push([a.lng, a.lat]);
+                }
             });
-            if (day.hotel?.lng && day.hotel?.lat) {
-                pts.push([day.hotel.lng, day.hotel.lat]);
-                allLngLat.push([day.hotel.lng, day.hotel.lat]);
-                this._addMarkers([day.hotel], 'hotel');
-            }
-            if (pts.length > 1) {
+
+            // 返回酒店
+            if (hotel?.lng && hotel?.lat && pts.length > 1) pts.push([hotel.lng, hotel.lat]);
+
+            if (pts.length > 2) {
                 const poly = new window.AMap.Polyline({
                     path: pts.map(p => new window.AMap.LngLat(p[0], p[1])),
                     strokeColor: COLORS[idx % COLORS.length],
                     strokeWeight: 3,
-                    strokeOpacity: 0.9,
+                    strokeOpacity: 0.85,
+                    strokeDasharray: idx === 0 ? null : [10, 5],
                     map: this.mapInstance,
                 });
                 this.polylines.push(poly);
             }
         });
 
+        // ── 景点标记（带序号）──────────────────────────────────
+        structured.days.forEach((day, dayIdx) => {
+            (day.attractions || []).forEach((a, attrIdx) => {
+                if (!a.lng || !a.lat || !window.AMap) return;
+                const color = COLORS[dayIdx % COLORS.length];
+                const marker = new window.AMap.Marker({
+                    position: [a.lng, a.lat],
+                    map: this.mapInstance,
+                    content: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;line-height:24px;text-align:center;font-size:12px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,.3)">${attrIdx + 1}</div>`,
+                    offset: new window.AMap.Pixel(-12, -12),
+                });
+                const infoContent = `<div style="padding:8px 12px;font-size:13px;max-width:200px">
+                    <b>Day${day.day} · ${a.name}</b>
+                    ${a.address ? `<br><span style="color:#80868b;font-size:12px">📍 ${a.address}</span>` : ''}
+                    ${a.tip ? `<br><span style="color:#f29900;font-size:12px">💡 ${a.tip}</span>` : ''}
+                </div>`;
+                const info = new window.AMap.InfoWindow({ content: infoContent, offset: new window.AMap.Pixel(0, -24) });
+                marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
+                this.markers.push(marker);
+            });
+        });
+
+        // ── 自动缩放到全部景点范围 ─────────────────────────────
         if (allLngLat.length) {
             const lngs = allLngLat.map(p => p[0]);
             const lats = allLngLat.map(p => p[1]);
@@ -1267,6 +1412,52 @@ class TravelUI {
                 new window.AMap.LngLat(Math.max(...lngs), Math.max(...lats)),
             ));
         }
+
+        // ── 保存美食数据供切换使用 ─────────────────────────────
+        this._foodData = structured.foods || [];
+        this.foodMarkersVisible = false;
+        this.foodMarkers = [];
+    }
+
+    _clearHotelMarkers() {
+        // 清除酒店类型的标记（红色标记）重新添加新选中的
+        this.markers = this.markers.filter(m => {
+            const el = m.getContent?.();
+            if (typeof el === 'string' && el.includes('mark_r')) {
+                m.setMap(null);
+                return false;
+            }
+            return true;
+        });
+    }
+
+    _toggleFoodMarkers(visible) {
+        if (!this.mapInstance || !window.AMap) return;
+        if (!visible) {
+            this.foodMarkers.forEach(m => m.setMap(null));
+            this.foodMarkers = [];
+            return;
+        }
+        (this._foodData || []).forEach(f => {
+            if (!f.lng || !f.lat) return;
+            const marker = new window.AMap.Marker({
+                position: [f.lng, f.lat],
+                map: this.mapInstance,
+                content: `<div style="background:#FF6B35;color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,.3)">🍜 ${f.name}</div>`,
+                offset: new window.AMap.Pixel(-20, -16),
+            });
+            const info = new window.AMap.InfoWindow({
+                content: `<div style="padding:8px 12px;font-size:13px;max-width:200px">
+                    <b>🍜 ${f.name}</b>
+                    ${f.cuisine ? `<br><span style="color:#80868b">${f.cuisine}</span>` : ''}
+                    ${f.avg_price ? `<br>人均 ¥${f.avg_price}` : ''}
+                    ${f.address ? `<br><span style="font-size:12px;color:#80868b">📍 ${f.address}</span>` : ''}
+                </div>`,
+                offset: new window.AMap.Pixel(0, -16),
+            });
+            marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
+            this.foodMarkers.push(marker);
+        });
     }
 
     _highlightDay(dayNum) {
