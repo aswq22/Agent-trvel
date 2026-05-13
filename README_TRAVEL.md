@@ -98,6 +98,10 @@ GAODE_API_KEY=你的高德REST_API_KEY
 # 注册同上 → 创建应用 → Web 端（JS API）→ 配置白名单 localhost
 AMAP_JS_KEY=你的高德JS_API_KEY
 
+# 高德地图 JS API 安全密钥（JS API 2.0 必填）
+# 在高德控制台 → 我的应用 → 对应 Key 详情页 → 安全密钥 中获取
+AMAP_JS_SECURITY_CODE=你的安全密钥
+
 # ── 可选（使用默认即可）─────────────────────────────────────
 DASHSCOPE_MODEL=qwen-max
 RAG_MODEL=qwen-max
@@ -105,22 +109,28 @@ SHARE_DB_URL=sqlite:///data/shares.db
 PORT=9900
 ```
 
-> **注意：** `GAODE_API_KEY`（REST）和 `AMAP_JS_KEY`（JS SDK）是**两个不同类型**的 Key，需要分别在高德控制台创建。
+> **注意：** 高德地图涉及 **3 个凭证**，需要分别申请：
 >
-> - REST Key：用于后端 MCP Server 调用高德 POI/路线接口
-> - JS Key：用于前端加载高德地图 SDK，需要在控制台配置允许的域名（填 `localhost`）
+> | 变量 | 类型 | 用途 |
+> |------|------|------|
+> | `GAODE_API_KEY` | REST API Key | 后端 MCP Server 调用高德 POI/路线接口 |
+> | `AMAP_JS_KEY` | JS API Key | 前端加载高德地图 SDK |
+> | `AMAP_JS_SECURITY_CODE` | JS API 安全密钥 | JS API 2.0 强制要求，与 JS Key 配套 |
 
 ### 2.3 Key 申请说明
 
 | Key 类型 | 用途 | 申请路径 |
 |----------|------|---------|
-| 高德 REST API Key | 后端景点/酒店/路线搜索 | lbs.amap.com → 我的应用 → 添加 Key → 服务平台选「Web 服务」|
-| 高德 JS API Key | 前端地图渲染 | lbs.amap.com → 我的应用 → 添加 Key → 服务平台选「Web 端（JS API）」|
+| 高德 REST API Key | 后端景点/酒店/路线搜索 | lbs.amap.com → 我的应用 → 添加 Key → 服务平台选「**Web 服务**」|
+| 高德 JS API Key | 前端地图渲染 | lbs.amap.com → 我的应用 → 添加 Key → 服务平台选「**Web 端（JS API）**」→ 配置域名白名单填 `localhost` |
+| 高德 JS API 安全密钥 | JS API 2.0 安全验证 | 高德控制台 → 我的应用 → 点击对应 JS Key → **安全密钥**（同一页面）|
 | 通义千问 Key | LLM 推理 | dashscope.aliyun.com → API Keys |
+
+> **安全密钥说明：** 高德 JS API 2.0 引入了 `securityJsCode` 机制。本项目通过后端接口 `/api/travel/map-key` 将安全密钥下发到前端，前端在加载地图 SDK 前设置 `window._AMapSecurityConfig = { securityJsCode: '...' }`，符合高德官方推荐的明文传输模式。
 
 > **不填任何 Key 也能运行**，但：
 > - 无 `GAODE_API_KEY`：景点/酒店/餐厅搜索降级为成都 Mock 数据
-> - 无 `AMAP_JS_KEY`：前端地图不加载，显示占位符
+> - 无 `AMAP_JS_KEY` / `AMAP_JS_SECURITY_CODE`：前端地图不加载，显示占位符
 
 ---
 
@@ -379,10 +389,16 @@ GET /api/travel/map-key
 
 **响应：**
 ```json
-{"key": "你的AMAP_JS_KEY"}
+{
+  "key": "你的AMAP_JS_KEY",
+  "security_code": "你的安全密钥"
+}
 ```
 
-> 此接口将 Key 保存在后端，前端通过此接口获取，避免 Key 硬编码暴露在 HTML 中。
+> Key 和安全密钥均保存在后端 `.env`，通过此接口下发，避免硬编码在 HTML 中。前端收到后在加载地图 SDK 前执行：
+> ```js
+> window._AMapSecurityConfig = { securityJsCode: security_code };
+> ```
 
 ---
 
@@ -726,6 +742,17 @@ uv run pytest tests/agent/travel/ tests/api/ tests/db/ -v
 ---
 
 ## 11. 变更记录
+
+### v1.2.2 — 2026-05-13 | 高德地图 JS API 安全密钥支持
+
+**修复：** 高德地图 JS API 2.0 要求在加载 SDK 前设置 `securityJsCode`，否则地图无法初始化。
+
+- `app/config.py`：新增 `amap_js_security_code: str = ""`
+- `.env`：新增 `AMAP_JS_SECURITY_CODE=`（在高德控制台 Key 详情页获取）
+- `app/api/travel.py`：`/api/travel/map-key` 响应新增 `security_code` 字段
+- `static/app.js`：`_loadMap()` 在加载 SDK 前注入 `window._AMapSecurityConfig = { securityJsCode }`
+
+---
 
 ### v1.2.1 — 2026-05-13 | 前端旅游规划工作台全功能上线
 

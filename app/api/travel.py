@@ -14,8 +14,11 @@ router = APIRouter()
 
 @router.get("/travel/map-key")
 async def get_map_key():
-    """Return the Amap JS API key."""
-    return {"key": config.amap_js_key}
+    """Return the Amap JS API key and security code (jscode for JS API 2.0)."""
+    return {
+        "key": config.amap_js_key,
+        "security_code": config.amap_js_security_code,
+    }
 
 
 @router.post("/travel/share", response_model=ShareResponse)

@@ -1168,8 +1168,13 @@ class TravelUI {
         try {
             const resp = await fetch('/api/travel/map-key');
             if (!resp.ok) return;
-            const { key } = await resp.json();
+            const { key, security_code } = await resp.json();
             if (!key) return;
+
+            // JS API 2.0 必须在加载 SDK 前设置安全密钥
+            if (security_code) {
+                window._AMapSecurityConfig = { securityJsCode: security_code };
+            }
 
             await new Promise((resolve, reject) => {
                 const s = document.createElement('script');

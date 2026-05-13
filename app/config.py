@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     gaode_api_key: str = ""
     # 高德地图 JS API Key（用于前端地图展示）
     amap_js_key: str = ""
+    # 高德地图 JS API 安全密钥（jscode，2.0 版本必填）
+    amap_js_security_code: str = ""
     # 分享链接数据库 URL
     share_db_url: str = "sqlite:///data/shares.db"
 
