@@ -23,7 +23,7 @@ _PROMPT = {
         使用 ctrip_hotel_search 搜索酒店，用 ctrip_hotel_detail 获取详情。
         推荐 3 个不同价位的酒店选项。
 
-        以 JSON 数组格式输出，每项包含：name、stars、rating、price_per_night、address、amenities、reason。
+        以 JSON 数组格式输出，每项包含：name、stars、rating、price_per_night、address、amenities、reason、lng（经度，浮点数）、lat（纬度，浮点数）。坐标从携程酒店详情中提取，若无则省略。
         只输出 JSON，不要其他文字。
     """).strip(),
     "en": dedent("""
@@ -36,7 +36,7 @@ _PROMPT = {
 
         Use ctrip_hotel_search and ctrip_hotel_detail. Recommend 3 options at different price points.
 
-        Output as JSON array: name, stars, rating, price_per_night, address, amenities, reason.
+        Output as JSON array: name, stars, rating, price_per_night, address, amenities, reason, lng (longitude float), lat (latitude float). Extract from ctrip hotel detail; omit if unavailable.
         JSON only.
     """).strip(),
 }

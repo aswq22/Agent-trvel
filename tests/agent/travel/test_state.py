@@ -59,3 +59,19 @@ def test_travel_mcp_servers_config():
     for s in servers.values():
         assert "transport" in s
         assert "url" in s
+
+
+def test_travel_plan_state_structured_plan():
+    state: TravelPlanState = {
+        "user_input": "test",
+        "trip_params": None,
+        "attractions": [],
+        "route": {},
+        "hotels": [],
+        "foods": [],
+        "final_plan": "",
+        "structured_plan": None,
+        "errors": {},
+        "messages": [],
+    }
+    assert state["structured_plan"] is None

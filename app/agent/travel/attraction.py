@@ -26,7 +26,7 @@ _PROMPT = {
         2. 用 dianping_attraction_search 搜索 {destination} 景点
         3. 综合两个来源，推荐最适合 {days} 天行程的 {num} 个景点
 
-        最终以 JSON 数组格式输出景点，每项包含：name、address、rating、ticket_price、highlights、reason。
+        最终以 JSON 数组格式输出景点，每项包含：name、address、rating、ticket_price、highlights、reason、lng（经度，浮点数）、lat（纬度，浮点数）。坐标从高德 POI 搜索结果中提取，若无则省略。
         只输出 JSON，不要其他文字。
     """).strip(),
     "en": dedent("""
@@ -42,7 +42,7 @@ _PROMPT = {
         2. Use dianping_attraction_search to search attractions in {destination}
         3. Recommend the best {num} attractions for a {days}-day trip
 
-        Output as a JSON array only. Each item: name, address, rating, ticket_price, highlights, reason.
+        Output as a JSON array only. Each item: name, address, rating, ticket_price, highlights, reason, lng (longitude float), lat (latitude float). Extract coordinates from gaode POI results; omit if unavailable.
     """).strip(),
 }
 

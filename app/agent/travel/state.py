@@ -26,5 +26,6 @@ class TravelPlanState(TypedDict):
     hotels: List[dict]
     foods: List[dict]
     final_plan: str
+    structured_plan: Optional[dict]
     errors: Annotated[dict, merge_dicts]
     messages: Annotated[List[BaseMessage], add_messages]
