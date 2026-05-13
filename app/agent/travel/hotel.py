@@ -76,7 +76,9 @@ async def hotel_node(state: TravelPlanState) -> Dict[str, Any]:
         messages: List[BaseMessage] = [HumanMessage(content=prompt)]
         final_text = await _run_react_loop(messages, llm_with_tools, tool_map)
         hotels = _parse_json_list(final_text)
-        logger.info(f"HotelAgent 完成，推荐 {len(hotels)} 个酒店")
+        from app.agent.travel.geo_utils import fill_coordinates
+        hotels = await fill_coordinates(hotels, destination, config.gaode_api_key)
+        logger.info(f"HotelAgent 完成，推荐 {len(hotels)} 个酒店（含坐标补全）")
         return {"hotels": hotels}
 
     except Exception as e:

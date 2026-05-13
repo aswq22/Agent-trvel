@@ -77,7 +77,9 @@ async def food_node(state: TravelPlanState) -> Dict[str, Any]:
         messages: List[BaseMessage] = [HumanMessage(content=prompt)]
         final_text = await _run_react_loop(messages, llm_with_tools, tool_map)
         foods = _parse_json_list(final_text)
-        logger.info(f"FoodAgent 完成，推荐 {len(foods)} 个餐厅")
+        from app.agent.travel.geo_utils import fill_coordinates
+        foods = await fill_coordinates(foods, destination, config.gaode_api_key)
+        logger.info(f"FoodAgent 完成，推荐 {len(foods)} 个餐厅（含坐标补全）")
         return {"foods": foods}
 
     except Exception as e:

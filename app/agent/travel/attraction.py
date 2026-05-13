@@ -105,7 +105,9 @@ async def attraction_node(state: TravelPlanState) -> Dict[str, Any]:
         messages: List[BaseMessage] = [HumanMessage(content=prompt)]
         final_text = await _run_react_loop(messages, llm_with_tools, tool_map)
         attractions = _parse_json_list(final_text)
-        logger.info(f"AttractionAgent 完成，推荐 {len(attractions)} 个景点")
+        from app.agent.travel.geo_utils import fill_coordinates
+        attractions = await fill_coordinates(attractions, destination, config.gaode_api_key)
+        logger.info(f"AttractionAgent 完成，推荐 {len(attractions)} 个景点（含坐标补全）")
         return {"attractions": attractions}
 
     except Exception as e:

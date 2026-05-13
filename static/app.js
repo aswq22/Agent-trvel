@@ -1351,7 +1351,7 @@ class TravelUI {
 
             await new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.Polyline,AMap.Driving,AMap.Transfer,AMap.Walking,AMap.Cycling,AMap.Weather`;
+                s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.Polyline,AMap.Driving,AMap.Transfer,AMap.Walking,AMap.Cycling,AMap.Weather,AMap.PlaceSearch`;
                 s.onload = resolve;
                 s.onerror = reject;
                 document.head.appendChild(s);
@@ -1552,10 +1552,11 @@ class TravelUI {
         // ── 美食标注（常驻，无需切换）──────────────────────────
         this._addFoodMapMarkers(structured.foods || []);
 
-        // ── 天气 + 路线规划（异步，不阻塞地图展示）──────────────
+        // ── 天气 + 前端坐标补全 + 路线规划（异步）────────────────
         const dest = this._buildRequestBody().trip_params.destination;
         this._fetchWeather(dest);
-        setTimeout(() => this._planDayRoutes(structured, dest), 800);
+        // 先做前端坐标补全，再绘制路线（避免路线空缺）
+        this._geocodeMissingAndPlan(structured, dest);
     }
 
     _clearHotelMarkers() {
@@ -1716,25 +1717,31 @@ class TravelUI {
     }
 
     async _renderActualRoute(waypoints, color) {
-        if (!window.AMap?.Driving || waypoints.length < 2) return;
+        const validPts = waypoints.filter(p => p.lng && p.lat);
+        if (validPts.length < 2) return;
+
+        if (!window.AMap?.Driving) {
+            this._drawFallbackPolyline(validPts, color);
+            return;
+        }
+
         return new Promise(resolve => {
             try {
-                const driving = new window.AMap.Driving({
-                    autoFitView: false,
-                    policy: 0, // LEAST_TIME
-                });
-                const origin = new window.AMap.LngLat(waypoints[0].lng, waypoints[0].lat);
-                const dest   = new window.AMap.LngLat(waypoints[waypoints.length - 1].lng, waypoints[waypoints.length - 1].lat);
-                const via    = waypoints.slice(1, -1).map(p => new window.AMap.LngLat(p.lng, p.lat));
-                const timeout = setTimeout(() => resolve(), 6000);
+                const driving = new window.AMap.Driving({ autoFitView: false, policy: 0 });
+                const origin = new window.AMap.LngLat(validPts[0].lng, validPts[0].lat);
+                const dest   = new window.AMap.LngLat(validPts[validPts.length - 1].lng, validPts[validPts.length - 1].lat);
+                const via    = validPts.slice(1, -1).map(p => new window.AMap.LngLat(p.lng, p.lat));
+                const timeout = setTimeout(() => {
+                    this._drawFallbackPolyline(validPts, color);
+                    resolve();
+                }, 7000);
 
                 driving.search(origin, dest, { waypoints: via }, (status, result) => {
                     clearTimeout(timeout);
+                    let drawn = false;
                     if (status === 'complete' && result?.routes?.[0]?.steps) {
                         const path = [];
-                        result.routes[0].steps.forEach(step => {
-                            if (step.path) path.push(...step.path);
-                        });
+                        result.routes[0].steps.forEach(s => { if (s.path) path.push(...s.path); });
                         if (path.length > 1) {
                             const poly = new window.AMap.Polyline({
                                 path,
@@ -1745,12 +1752,168 @@ class TravelUI {
                                 zIndex: 50,
                             });
                             this.polylines.push(poly);
+                            drawn = true;
                         }
                     }
+                    if (!drawn) this._drawFallbackPolyline(validPts, color);
                     resolve();
                 });
                 this.routeRenderers.push(driving);
-            } catch (_) { resolve(); }
+            } catch (_) {
+                this._drawFallbackPolyline(validPts, color);
+                resolve();
+            }
+        });
+    }
+
+    _drawFallbackPolyline(waypoints, color) {
+        const validPts = waypoints.filter(p => p.lng && p.lat);
+        if (!this.mapInstance || !window.AMap || validPts.length < 2) return;
+        const poly = new window.AMap.Polyline({
+            path: validPts.map(p => new window.AMap.LngLat(p.lng, p.lat)),
+            strokeColor: color,
+            strokeWeight: 3,
+            strokeOpacity: 0.55,
+            strokeStyle: 'dashed',
+            strokeDasharray: [12, 6],
+            map: this.mapInstance,
+            zIndex: 45,
+        });
+        this.polylines.push(poly);
+    }
+
+    // ─── 前端坐标补全 + 路线重触发 ─────────────────────────────────────────────
+
+    async _geocodeMissingAndPlan(structured, city) {
+        await this._geocodeMissing(structured, city);
+        // 补全后重新添加地图标注（增量，不清除已有的）
+        this._addMissingMarkers(structured);
+        // 再规划路线
+        await this._planDayRoutes(structured, city);
+    }
+
+    async _geocodeMissing(structured, city) {
+        if (!window.AMap?.PlaceSearch) return;
+
+        const search = name => new Promise(resolve => {
+            try {
+                const ps = new window.AMap.PlaceSearch({ city, citylimit: true, pageSize: 1 });
+                const t = setTimeout(() => resolve(null), 3000);
+                ps.search(name, (status, result) => {
+                    clearTimeout(t);
+                    if (status === 'complete' && result?.poiList?.pois?.[0]) {
+                        const loc = result.poiList.pois[0].location;
+                        resolve({ lng: loc.getLng(), lat: loc.getLat() });
+                    } else resolve(null);
+                });
+            } catch (_) { resolve(null); }
+        });
+
+        const tasks = [];
+
+        // 酒店
+        for (const h of structured.hotel_options || []) {
+            if (!h.lng && h.name) tasks.push(search(h.name).then(c => { if (c) { h.lng = c.lng; h.lat = c.lat; } }));
+        }
+        if (structured.selected_hotel && !structured.selected_hotel.lng) {
+            const src = (structured.hotel_options || []).find(h => h.name === structured.selected_hotel.name);
+            if (src?.lng) { structured.selected_hotel.lng = src.lng; structured.selected_hotel.lat = src.lat; }
+        }
+
+        // 景点
+        for (const day of structured.days || []) {
+            for (const a of day.attractions || []) {
+                if (!a.lng && a.name) tasks.push(search(a.name).then(c => { if (c) { a.lng = c.lng; a.lat = c.lat; } }));
+            }
+        }
+
+        // 美食
+        for (const f of structured.foods || []) {
+            if (!f.lng && f.name) tasks.push(search(f.name).then(c => { if (c) { f.lng = c.lng; f.lat = c.lat; } }));
+        }
+
+        await Promise.all(tasks);
+
+        // 同步 selected_hotel 坐标（可能在上面酒店循环中被补全）
+        if (structured.selected_hotel && !structured.selected_hotel.lng) {
+            const h0 = structured.hotel_options?.[0];
+            if (h0?.lng) { structured.selected_hotel.lng = h0.lng; structured.selected_hotel.lat = h0.lat; }
+        }
+    }
+
+    _addMissingMarkers(structured) {
+        if (!this.mapInstance || !window.AMap) return;
+
+        // 补全后的酒店标注（若之前未标注）
+        const hotel = structured.selected_hotel || structured.hotel_options?.[0];
+        const alreadyHasHotel = (this.hotelMarkers || []).length > 0;
+        if (!alreadyHasHotel && hotel?.lng && hotel?.lat) {
+            this._addHotelMapMarker(hotel);
+        }
+
+        // 补全后的景点标注（只加之前跳过的）
+        const COLORS = ['#4A90E2', '#E2574A', '#FF8C00', '#9B59B6', '#1ABC9C', '#F39C12', '#E91E63'];
+        const existingPositions = new Set(
+            this.markers.map(m => { const p = m.getPosition(); return p ? `${p.getLng().toFixed(4)},${p.getLat().toFixed(4)}` : ''; })
+        );
+        (structured.days || []).forEach((day, dayIdx) => {
+            (day.attractions || []).forEach((a, attrIdx) => {
+                if (!a.lng || !a.lat) return;
+                const key = `${a.lng.toFixed(4)},${a.lat.toFixed(4)}`;
+                if (existingPositions.has(key)) return;
+                const color = COLORS[dayIdx % COLORS.length];
+                const marker = new window.AMap.Marker({
+                    position: [a.lng, a.lat],
+                    map: this.mapInstance,
+                    content: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;line-height:24px;text-align:center;font-size:12px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,.3)">${attrIdx + 1}</div>`,
+                    offset: new window.AMap.Pixel(-12, -12),
+                    zIndex: 100,
+                });
+                const infoContent = `<div style="padding:8px 12px;font-size:13px;max-width:200px">
+                    <b>Day${day.day} · ${a.name}</b>
+                    ${a.address ? `<br><span style="color:#80868b;font-size:12px">📍 ${a.address}</span>` : ''}
+                    ${a.tip ? `<br><span style="color:#f29900;font-size:12px">💡 ${a.tip}</span>` : ''}
+                </div>`;
+                const info = new window.AMap.InfoWindow({ content: infoContent, offset: new window.AMap.Pixel(0, -24) });
+                marker.on('click', () => info.open(this.mapInstance, marker.getPosition()));
+                this.markers.push(marker);
+                existingPositions.add(key);
+            });
+        });
+
+        // 补全后的美食标注
+        const existingFoodPositions = new Set(
+            (this.foodMarkers || []).map(m => { const p = m.getPosition(); return p ? `${p.getLng().toFixed(4)},${p.getLat().toFixed(4)}` : ''; })
+        );
+        (structured.foods || []).forEach((f, idx) => {
+            if (!f.lng || !f.lat) return;
+            const key = `${f.lng.toFixed(4)},${f.lat.toFixed(4)}`;
+            if (existingFoodPositions.has(key)) return;
+            const bg = this._foodColor(idx);
+            const svgContent = `<div style="width:34px;height:34px;background:${bg};border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(255,107,53,0.45);border:2.5px solid #fff;cursor:pointer">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/>
+                    <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>
+                </svg></div>`;
+            const marker = new window.AMap.Marker({
+                position: [f.lng, f.lat],
+                map: this.mapInstance,
+                content: svgContent,
+                offset: new window.AMap.Pixel(-17, -17),
+                zIndex: 150,
+            });
+            const sig = Array.isArray(f.signature) ? f.signature.slice(0, 3).join('、') : (f.signature || '');
+            const infoHtml = `<div style="padding:10px 14px;font-size:13px;min-width:150px;max-width:220px">
+                <div style="font-weight:600;color:#FF6B35;margin-bottom:4px">${f.name || '餐厅'}</div>
+                ${f.cuisine ? `<span style="background:#fff3ee;color:#FF6B35;font-size:11px;padding:1px 6px;border-radius:8px">${f.cuisine}</span>` : ''}
+                ${f.avg_price ? `<span style="float:right;color:#188038;font-weight:600">¥${f.avg_price}/人</span>` : ''}
+                ${sig ? `<div style="color:#5f6368;font-size:12px;margin-top:6px">招牌：${sig}</div>` : ''}
+                ${f.address ? `<div style="color:#80868b;font-size:12px;margin-top:4px">${f.address}</div>` : ''}
+            </div>`;
+            const infoWin = new window.AMap.InfoWindow({ content: infoHtml, offset: new window.AMap.Pixel(0, -34) });
+            marker.on('click', () => infoWin.open(this.mapInstance, marker.getPosition()));
+            this.foodMarkers.push(marker);
+            this.foodInfoWindows.push(infoWin);
         });
     }
 
