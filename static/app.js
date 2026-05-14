@@ -1092,7 +1092,57 @@ class SuperBizAgentApp {
     }
 
     onIngestClick() {
-        // implemented in Task 7
+        const keyword = this.kbKeywordInput ? this.kbKeywordInput.value.trim() : '';
+        const city    = this.kbCityInput    ? this.kbCityInput.value.trim()    : '';
+        const count   = this.kbCountSelect  ? parseInt(this.kbCountSelect.value, 10) : 5;
+        if (!keyword) {
+            this.setIngestStatus('请填写关键词', 'warn');
+            return;
+        }
+        this.ingestKb(keyword, city, count);
+    }
+
+    setIngestStatus(text, level) {
+        if (!this.kbIngestStatus) return;
+        this.kbIngestStatus.textContent = text;
+        this.kbIngestStatus.className = 'kb-ingest-status' + (level ? ' ' + level : '');
+    }
+
+    setIngestLoading(loading) {
+        if (!this.kbIngestBtn) return;
+        this.kbIngestBtn.disabled = loading;
+        const txt   = this.kbIngestBtn.querySelector('.kb-ingest-btn-text');
+        const ldg   = this.kbIngestBtn.querySelector('.kb-ingest-btn-loading');
+        if (txt) txt.style.display = loading ? 'none' : '';
+        if (ldg) ldg.style.display = loading ? 'inline-flex' : 'none';
+    }
+
+    async ingestKb(keyword, city, count) {
+        this.setIngestLoading(true);
+        this.setIngestStatus('', '');
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/ingest/mcp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword, city, count }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '入库失败');
+            const data = body.data || {};
+            if (!data.kb_name) {
+                this.setIngestStatus('0 条笔记，未创建知识库', 'warn');
+                return;
+            }
+            this.setIngestStatus(`✓ 已入库 ${data.ingested} 笔记 / ${data.chunks} 块`, 'ok');
+            await this.fetchKbList();
+            // 自动选中新建的 KB，但不关闭抽屉（让用户看到自己刚建的列表项）
+            this.selectKb(data.kb_name, false);
+        } catch (e) {
+            this.setIngestStatus(`✗ ${e.message}`, 'err');
+        } finally {
+            this.setIngestLoading(false);
+        }
     }
 }
 
