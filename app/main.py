@@ -9,7 +9,7 @@ import os
 
 from app.config import config
 from loguru import logger
-from app.api import health, travel, chat
+from app.api import health, travel, chat, xhs, chat_rag
 
 
 @asynccontextmanager
@@ -44,6 +44,8 @@ app.add_middleware(
 app.include_router(health.router, tags=["健康检查"])
 app.include_router(travel.router, prefix="/api", tags=["旅游规划"])
 app.include_router(chat.router, prefix="/api", tags=["聊天"])
+app.include_router(chat_rag.router, prefix="/api", tags=["RAG 对话"])
+app.include_router(xhs.router, prefix="/api", tags=["小红书 RAG"])
 
 static_dir = "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
