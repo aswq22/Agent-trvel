@@ -11,6 +11,18 @@ class SuperBizAgentApp {
         this.chatHistories = this.loadChatHistories();
         this.isCurrentChatFromHistory = false;
 
+        // XHS RAG 状态
+        this.kb = {
+            selectedName: null,
+            list: [],
+            loaded: false,
+            drawerOpen: false,
+            pendingSendAfterSelect: false,
+            pendingQuestion: '',
+        };
+        const savedKb = localStorage.getItem('xhs_selected_kb');
+        if (savedKb) this.kb.selectedName = savedKb;
+
         this.initializeElements();
         this.bindEvents();
         this.updateUI();
@@ -84,6 +96,23 @@ class SuperBizAgentApp {
         this.welcomeText = document.getElementById('welcomeText');
         this.welcomeSub = document.getElementById('welcomeSub');
         this.chatHistoryList = document.getElementById('chatHistoryList');
+        // XHS RAG DOM
+        this.kbBar              = document.getElementById('kbBar');
+        this.kbBarSelect        = document.getElementById('kbBarSelect');
+        this.kbBarSelectedName  = document.getElementById('kbBarSelectedName');
+        this.kbBarManageBtn     = document.getElementById('kbBarManageBtn');
+        this.kbDrawer           = document.getElementById('kbDrawer');
+        this.kbDrawerOverlay    = document.getElementById('kbDrawerOverlay');
+        this.kbDrawerClose      = document.getElementById('kbDrawerClose');
+        this.kbKeywordInput     = document.getElementById('kbKeywordInput');
+        this.kbCityInput        = document.getElementById('kbCityInput');
+        this.kbCountSelect      = document.getElementById('kbCountSelect');
+        this.kbIngestBtn        = document.getElementById('kbIngestBtn');
+        this.kbIngestStatus     = document.getElementById('kbIngestStatus');
+        this.kbList             = document.getElementById('kbList');
+        this.kbListCount        = document.getElementById('kbListCount');
+        this.kbEmpty            = document.getElementById('kbEmpty');
+        this.kbRefreshBtn       = document.getElementById('kbRefreshBtn');
     }
 
     // ─── Events ──────────────────────────────────────────────────────────────
@@ -190,7 +219,12 @@ class SuperBizAgentApp {
         if (this.isStreaming) { this.showNotification('请等待当前对话完成后再切换', 'warning'); return; }
         this.currentMode = mode;
         this.updateUI();
-        this.showNotification(`已切换到${mode === 'quick' ? '快速' : '流式'}模式`, 'info');
+        const label = { quick: '快速', stream: '流式', rag: 'RAG · 小红书' }[mode] || mode;
+        this.showNotification(`已切换到${label}模式`, 'info');
+        // RAG 首次切入时静默拉一次列表
+        if (mode === 'rag' && !this.kb.loaded) {
+            this.fetchKbList();
+        }
     }
 
     // ─── UI Update ───────────────────────────────────────────────────────────
@@ -233,7 +267,15 @@ class SuperBizAgentApp {
 
         // 聊天子模式文字
         if (this.currentModeText && !isTravel) {
-            this.currentModeText.textContent = this.currentMode === 'quick' ? '快速' : '流式';
+            this.currentModeText.textContent =
+                { quick: '快速', stream: '流式', rag: 'RAG' }[this.currentMode] || '快速';
+        }
+
+        // XHS RAG：KB bar 显隐
+        if (this.kbBar) {
+            const showKbBar = !isTravel && this.currentMode === 'rag';
+            this.kbBar.style.display = showKbBar ? 'flex' : 'none';
+            if (showKbBar) this.refreshKbBarLabel();
         }
 
         // 下拉激活状态
@@ -857,6 +899,28 @@ class SuperBizAgentApp {
             setTimeout(() => { if (n.parentNode) n.parentNode.removeChild(n); }, 300);
         }, 3000);
     }
+
+    // ─── XHS RAG ────────────────────────────────────────────────────────────
+
+    refreshKbBarLabel() {
+        if (!this.kbBarSelectedName) return;
+        if (!this.kb.selectedName) {
+            this.kbBarSelectedName.textContent = '请选择知识库';
+            this.kbBarSelectedName.classList.add('kb-bar-placeholder');
+            this.kbBarSelectedName.title = '';
+        } else {
+            const item = this.kb.list.find(x => x.kb_name === this.kb.selectedName);
+            const fallback = this.kb.selectedName.split('_').pop();
+            this.kbBarSelectedName.textContent = (item && item.description) || fallback;
+            this.kbBarSelectedName.classList.remove('kb-bar-placeholder');
+            this.kbBarSelectedName.title = this.kb.selectedName;
+        }
+        // 用户操作意图改变后清掉警告动画
+        if (this.kbBar) this.kbBar.classList.remove('warn');
+    }
+
+    // fetchKbList 占位 —— Task 4 实现
+    async fetchKbList() { /* implemented in Task 4 */ }
 }
 
 // 动画
