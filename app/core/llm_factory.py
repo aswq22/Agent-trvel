@@ -49,11 +49,18 @@ class LLMFactory:
         )
 
     @staticmethod
-    def create_travel_llm(temperature: float = 0, streaming: bool = False) -> ChatOpenAI:
+    def create_travel_llm(
+        temperature: float = 0,
+        streaming: bool = False,
+        disable_thinking: bool = False,
+    ) -> ChatOpenAI:
         """通用 LLM（旅游 Agent + 聊天）。
 
         优先使用 DeepSeek（DEEPSEEK_API_KEY 非空时），
         否则 fallback 到 DashScope（DASHSCOPE_API_KEY）。
+
+        disable_thinking=True：禁用 DeepSeek thinking 模式（工具调用场景必须禁用，
+        否则 reasoning_content 无法传回导致 400 错误）。
         """
         model    = config.travel_llm_model
         api_key  = config.travel_llm_api_key
@@ -61,12 +68,18 @@ class LLMFactory:
 
         logger.info("LLM 初始化: model={} base={} streaming={}", model, base_url.split("/")[2], streaming)
 
+        extra: dict = {}
+        is_deepseek = "deepseek" in (api_key or "").lower() or "deepseek.com" in (base_url or "")
+        if is_deepseek and disable_thinking:
+            extra["thinking"] = {"type": "disabled"}
+
         return ChatOpenAI(
             model=model,
             temperature=temperature,
             streaming=streaming,
             base_url=base_url,
             api_key=api_key,
+            **({"extra_body": extra} if extra else {}),
         )
 
 

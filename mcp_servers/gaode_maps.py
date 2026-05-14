@@ -1,4 +1,5 @@
 # mcp_servers/gaode_maps.py
+import asyncio
 import httpx
 from fastmcp import FastMCP
 from app.config import config
@@ -82,18 +83,37 @@ async def gaode_distance_matrix(origins: str, destinations: str) -> dict:
     Returns:
         距离矩阵，含各点对间的距离（米）和时间（秒）
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{GAODE_BASE}/v5/direction/matrix/driving",
+    dest_list = [d.strip() for d in destinations.split("|") if d.strip()]
+
+    async def _query_one(http: httpx.AsyncClient, destination: str) -> dict:
+        resp = await http.get(
+            f"{GAODE_BASE}/v3/distance",
             params={
                 "origins": origins,
-                "destinations": destinations,
+                "destination": destination,
+                "type": 1,  # 驾车距离
                 "key": config.gaode_api_key,
                 "output": "json",
             },
         )
         resp.raise_for_status()
         return resp.json()
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        results = await asyncio.gather(
+            *[_query_one(client, d) for d in dest_list], return_exceptions=True  # noqa: E501
+        )
+
+    rows = []
+    for i, res in enumerate(results):
+        if isinstance(res, Exception):
+            rows.append({"destination_index": i, "error": str(res)})
+        else:
+            for item in res.get("results", []):
+                item["destination_index"] = i
+                rows.append(item)
+
+    return {"status": "1", "results": rows}
 
 
 if __name__ == "__main__":

@@ -76,13 +76,34 @@ async def _run_react_loop(
 
 
 def _parse_json_list(text: str) -> List[dict]:
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if match:
+    # Strip DeepSeek thinking-mode blocks
+    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Strip markdown code fences
+    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.MULTILINE)
+    clean = re.sub(r"```\s*$", "", clean, flags=re.MULTILINE).strip()
+
+    def _try_parse(s: str) -> List[dict]:
         try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
+            result = json.loads(s)
+            if isinstance(result, list) and all(isinstance(i, dict) for i in result):
+                return result
+        except (json.JSONDecodeError, ValueError):
             pass
-    return [{"raw": text}]
+        return []
+
+    # Try 1: entire cleaned text is a JSON array of dicts
+    parsed = _try_parse(clean)
+    if parsed:
+        return parsed
+
+    # Try 2: greedy search for the outermost [...] block
+    match = re.search(r"\[[\s\S]*\]", clean)
+    if match:
+        parsed = _try_parse(match.group())
+        if parsed:
+            return parsed
+
+    return []
 
 
 async def attraction_node(state: TravelPlanState) -> Dict[str, Any]:
@@ -98,7 +119,7 @@ async def attraction_node(state: TravelPlanState) -> Dict[str, Any]:
         mcp_client = await get_travel_mcp_client(["gaode", "dianping"])
         tools = await mcp_client.get_tools()
         tool_map = {t.name: t for t in tools}
-        llm = LLMFactory.create_travel_llm(temperature=0)
+        llm = LLMFactory.create_travel_llm(temperature=0, disable_thinking=True)
         llm_with_tools = llm.bind_tools(tools) if tools else llm
 
         prompt = _PROMPT[lang].format(destination=destination, days=days, preferences=preferences, num=num)

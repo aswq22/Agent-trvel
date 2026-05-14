@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # DeepSeek 配置（旅游 Agent 默认使用，API 兼容 OpenAI 格式）
     deepseek_api_key: str = ""
     deepseek_api_base: str = "https://api.deepseek.com/v1"
-    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_model: str = "deepseek-chat"
 
     @property
     def travel_llm_api_key(self) -> str:
@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     mcp_gaode_url: str = "http://localhost:8010/mcp"
     mcp_ctrip_url: str = "http://localhost:8011/mcp"
     mcp_dianping_url: str = "http://localhost:8012/mcp"
+
+    # 小红书 MCP server URL（用于抓取旅游攻略入库 Milvus）
+    mcp_xhs_url: str = "http://localhost:8013/mcp"
+    # 小红书 Cookie（用于 xhs_server.py 抓取真实内容）
+    xhs_cookie: str = ""
 
     @property
     def mcp_servers(self) -> Dict[str, Dict[str, Any]]:

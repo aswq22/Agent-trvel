@@ -67,7 +67,7 @@ async def food_node(state: TravelPlanState) -> Dict[str, Any]:
         mcp_client = await get_travel_mcp_client(["dianping"])
         tools = await mcp_client.get_tools()
         tool_map = {t.name: t for t in tools}
-        llm = LLMFactory.create_travel_llm(temperature=0)
+        llm = LLMFactory.create_travel_llm(temperature=0, disable_thinking=True)
         llm_with_tools = llm.bind_tools(tools) if tools else llm
 
         prompt = _PROMPT[lang].format(
