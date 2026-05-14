@@ -478,6 +478,15 @@ class SuperBizAgentApp {
         if (!message) { this.showNotification('请输入内容', 'warning'); return; }
         if (this.isStreaming) { this.showNotification('请等待当前对话完成', 'warning'); return; }
 
+        // RAG 前置：未选 KB → 缓存问题、shake KB bar、弹抽屉
+        if (this.appMode !== 'travel' && this.currentMode === 'rag' && !this.kb.selectedName) {
+            this.kb.pendingSendAfterSelect = true;
+            this.kb.pendingQuestion = message;
+            if (this.kbBar) this.kbBar.classList.add('warn');
+            this.openKbDrawer({ refresh: true });
+            return;
+        }
+
         this.addMessage('user', message);
         if (this.messageInput) this.messageInput.value = '';
         this.isStreaming = true;
@@ -486,6 +495,8 @@ class SuperBizAgentApp {
         try {
             if (this.appMode === 'travel') {
                 await this.sendTravelRequest(message);
+            } else if (this.currentMode === 'rag') {
+                await this.sendRagStream(message);
             } else if (this.currentMode === 'quick') {
                 await this.sendQuickMessage(message);
             } else {
@@ -1143,6 +1154,105 @@ class SuperBizAgentApp {
         } finally {
             this.setIngestLoading(false);
         }
+    }
+
+    async sendRagStream(message) {
+        const msgEl = this.addMessage('assistant', '', true);  // 流式 stub
+        let citationsEl = null;
+        let fullResponse = '';
+
+        const resp = await fetch(`${this.apiBaseUrl}/chat/rag_stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                Question:   message,
+                session_id: this.sessionId,
+                kb_name:    this.kb.selectedName,
+            }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) { this.handleStreamComplete(msgEl, fullResponse); break; }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const raw = line.slice(5).trim();
+                    if (!raw) continue;
+                    let payload;
+                    try { payload = JSON.parse(raw); } catch (_) { continue; }
+
+                    if (payload.type === 'citations') {
+                        citationsEl = this.renderCitations(msgEl, payload.data || []);
+                    } else if (payload.type === 'content') {
+                        fullResponse += payload.data || '';
+                        const mc = msgEl.querySelector('.message-content');
+                        if (mc) {
+                            mc.innerHTML = this.renderMarkdown(fullResponse);
+                            this.highlightCodeBlocks(mc);
+                        }
+                        this.scrollToBottom();
+                    } else if (payload.type === 'done') {
+                        this.handleStreamComplete(msgEl, fullResponse);
+                        return;
+                    } else if (payload.type === 'error') {
+                        const mc = msgEl.querySelector('.message-content');
+                        if (mc) mc.innerHTML = this.renderMarkdown('错误: ' + (payload.data || '未知错误'));
+                        return;
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    renderCitations(msgEl, citations) {
+        if (!msgEl || !citations || citations.length === 0) return null;
+        const wrapper = msgEl.querySelector('.message-content-wrapper');
+        if (!wrapper) return null;
+        // 避免重复插入（首个 citations 事件之后通常不会再来）
+        let det = wrapper.querySelector('.message-citations');
+        if (!det) {
+            det = document.createElement('details');
+            det.className = 'message-citations';
+            // 插到 .message-content 之前
+            const mc = wrapper.querySelector('.message-content');
+            wrapper.insertBefore(det, mc);
+        }
+        det.dataset.count = citations.length;
+        const itemsHtml = citations.map((c, i) => {
+            const title  = this.escapeHtml(c.title || '(无标题)');
+            const url    = this.escapeHtml(c.url || '#');
+            const author = this.escapeHtml(c.author || '匿名');
+            const likes  = Number(c.likes) || 0;
+            return `
+                <li>
+                    <span class="citation-idx">[${i + 1}]</span>
+                    <a href="${url}" target="_blank" rel="noopener" class="citation-link">${title}</a>
+                    <span class="citation-meta">· ${author} · ${likes} 赞</span>
+                </li>
+            `;
+        }).join('');
+        det.innerHTML = `
+            <summary class="citations-summary">
+                <span class="citations-icon">📕</span>
+                <span class="citations-text">基于 ${citations.length} 条小红书攻略</span>
+                <svg class="citations-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </summary>
+            <ul class="citations-list">${itemsHtml}</ul>
+        `;
+        return det;
     }
 }
 
