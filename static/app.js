@@ -170,6 +170,30 @@ class SuperBizAgentApp {
             }
         });
         if (this.fileInput) this.fileInput.addEventListener('change', e => this.handleFileSelect(e));
+        // ── XHS RAG events ──────────────────────────────────────────
+        if (this.kbBarSelect) {
+            this.kbBarSelect.addEventListener('click', () => this.openKbDrawer({ refresh: true }));
+        }
+        if (this.kbBarManageBtn) {
+            this.kbBarManageBtn.addEventListener('click', () => this.openKbDrawer({ refresh: true }));
+        }
+        if (this.kbDrawerClose) {
+            this.kbDrawerClose.addEventListener('click', () => this.closeKbDrawer());
+        }
+        if (this.kbDrawerOverlay) {
+            this.kbDrawerOverlay.addEventListener('click', () => this.closeKbDrawer());
+        }
+        if (this.kbRefreshBtn) {
+            this.kbRefreshBtn.addEventListener('click', () => this.fetchKbList());
+        }
+        // KB 列表点击委托（select / delete-prompt / delete-confirm / delete-cancel）
+        if (this.kbList) {
+            this.kbList.addEventListener('click', (e) => this.onKbListClick(e));
+        }
+        // 入库按钮
+        if (this.kbIngestBtn) {
+            this.kbIngestBtn.addEventListener('click', () => this.onIngestClick());
+        }
     }
 
     // ─── App Mode Switching ──────────────────────────────────────────────────
@@ -989,8 +1013,40 @@ class SuperBizAgentApp {
         }
     }
 
-    // closeKbDrawer 占位 —— Task 5 实现
-    closeKbDrawer() { /* implemented in Task 5 */ }
+    async openKbDrawer({ refresh = true } = {}) {
+        if (!this.kbDrawer) return;
+        this.kbDrawer.style.display          = 'flex';
+        this.kbDrawerOverlay.style.display   = 'block';
+        this.kb.drawerOpen = true;
+        if (refresh || !this.kb.loaded) {
+            await this.fetchKbList();
+        }
+    }
+
+    closeKbDrawer() {
+        if (!this.kbDrawer) return;
+        this.kbDrawer.style.display        = 'none';
+        this.kbDrawerOverlay.style.display = 'none';
+        this.kb.drawerOpen = false;
+    }
+
+    onKbListClick(e) {
+        const itemEl = e.target.closest('.kb-item');
+        if (!itemEl) return;
+        const kbName = itemEl.dataset.kb;
+        const action = e.target.closest('[data-action]')?.dataset.action;
+
+        if (action === 'delete-prompt' || action === 'delete-confirm' || action === 'delete-cancel') {
+            // implemented in Task 6
+            return;
+        }
+        // 默认：点空白 = 选中
+        this.selectKb(kbName);
+    }
+
+    onIngestClick() {
+        // implemented in Task 7
+    }
 }
 
 // 动画
