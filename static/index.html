@@ -71,6 +71,23 @@
                 </div>
 
                 <div class="chat-input-container">
+                    <div class="kb-bar" id="kbBar" style="display:none">
+                        <span class="kb-bar-icon">📕</span>
+                        <span class="kb-bar-label">知识库:</span>
+                        <button class="kb-bar-select" id="kbBarSelect" type="button">
+                            <span id="kbBarSelectedName" class="kb-bar-placeholder">请选择知识库</span>
+                            <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="kb-bar-spacer"></div>
+                        <button class="kb-bar-manage" id="kbBarManageBtn" type="button">
+                            <svg viewBox="0 0 24 24" fill="none" width="14" height="14" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <span>管理</span>
+                        </button>
+                    </div>
                     <div class="input-group-wrapper">
                         <div class="input-wrapper">
                             <input type="text" id="messageInput"
@@ -117,6 +134,12 @@
                                                     <span>流式</span>
                                                 </div>
                                                 <div class="dropdown-item-sub">实时流式输出</div>
+                                            </div>
+                                            <div class="dropdown-item" data-mode="rag">
+                                                <div class="dropdown-item-main">
+                                                    <span>RAG · 小红书</span>
+                                                </div>
+                                                <div class="dropdown-item-sub">基于小红书攻略检索</div>
                                             </div>
                                         </div>
                                     </div>
@@ -265,6 +288,51 @@
         </div>
     </div>
 
+    <!-- 知识库抽屉 -->
+    <div class="kb-drawer-overlay" id="kbDrawerOverlay" style="display:none"></div>
+    <aside class="kb-drawer" id="kbDrawer" style="display:none">
+        <div class="kb-drawer-header">
+            <h3>📕 小红书知识库</h3>
+            <button class="kb-drawer-close" id="kbDrawerClose" aria-label="关闭" type="button">×</button>
+        </div>
+        <div class="kb-drawer-body">
+            <section class="kb-section">
+                <h4 class="kb-section-title">搜索并入库</h4>
+                <div class="kb-form">
+                    <label class="kb-form-label">关键词 <span class="required">*</span></label>
+                    <input type="text" id="kbKeywordInput" class="kb-form-input"
+                           placeholder="如：美食、景点、攻略" maxlength="50">
+                    <label class="kb-form-label">城市</label>
+                    <input type="text" id="kbCityInput" class="kb-form-input"
+                           placeholder="如：成都、北京（可空）" maxlength="20">
+                    <label class="kb-form-label">抓取数量</label>
+                    <select id="kbCountSelect" class="kb-form-input">
+                        <option value="3">3 条</option>
+                        <option value="5" selected>5 条</option>
+                        <option value="10">10 条</option>
+                        <option value="20">20 条</option>
+                    </select>
+                    <button class="kb-ingest-btn" id="kbIngestBtn" type="button">
+                        <span class="kb-ingest-btn-text">搜索并入库</span>
+                        <span class="kb-ingest-btn-loading" style="display:none">
+                            <span class="spinner-inline"></span> 入库中...
+                        </span>
+                    </button>
+                    <div class="kb-ingest-status" id="kbIngestStatus"></div>
+                </div>
+            </section>
+            <section class="kb-section">
+                <h4 class="kb-section-title">
+                    我的知识库 <span class="kb-count" id="kbListCount">(0)</span>
+                    <button class="kb-refresh-btn" id="kbRefreshBtn" title="刷新" type="button">⟳</button>
+                </h4>
+                <div class="kb-list" id="kbList"></div>
+                <div class="kb-empty" id="kbEmpty" style="display:none">
+                    还没有知识库，先用上面的表单搜索一个吧
+                </div>
+            </section>
+        </div>
+    </aside>
     <script src="/static/app.js?v=3"></script>
 </body>
 </html>
