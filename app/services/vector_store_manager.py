@@ -1,5 +1,6 @@
 """向量存储管理器 - 封装 Milvus VectorStore 操作"""
 
+import uuid
 from typing import List
 
 from langchain_core.documents import Document
@@ -13,6 +14,10 @@ from app.services.vector_embedding_service import vector_embedding_service
 
 # 统一使用 biz collection
 COLLECTION_NAME = "biz"
+
+
+class KBNotFoundError(Exception):
+    """请求的知识库（partition）不存在。"""
 
 
 class VectorStoreManager:
@@ -190,6 +195,69 @@ class VectorStoreManager:
         collection.drop_partition(kb_name)
         logger.info(f"删除 partition '{kb_name}', 释放 {n} 向量")
         return n
+
+    def add_documents_to_partition(
+        self, documents: List[Document], kb_name: str,
+    ) -> List[str]:
+        """入库到指定 partition。返回生成的 id 列表。"""
+        if not documents:
+            return []
+
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            collection.create_partition(partition_name=kb_name)
+
+        # 局部 import 让测试能 patch 这条模块路径
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        texts = [d.page_content for d in documents]
+        metadatas = [d.metadata or {} for d in documents]
+        vectors = _emb.embed_documents(texts)
+        ids = [str(uuid.uuid4()) for _ in documents]
+
+        # 列式插入：与 milvus_client._create_collection 中的字段顺序一致
+        # [id (VARCHAR), vector (FLOAT_VECTOR), content (VARCHAR), metadata (JSON)]
+        collection.insert(
+            data=[ids, vectors, texts, metadatas],
+            partition_name=kb_name,
+        )
+        collection.flush()
+        logger.info(f"partition '{kb_name}' 入库 {len(ids)} 向量")
+        return ids
+
+    def similarity_search_in_partition(
+        self, query: str, kb_name: str, k: int = 3,
+    ) -> List[Document]:
+        """仅在指定 partition 内向量检索。"""
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            raise KBNotFoundError(f"知识库 '{kb_name}' 不存在")
+
+        # 新建 partition 默认未加载到内存，需主动 load（已加载时是 no-op）
+        try:
+            collection.partition(kb_name).load()
+        except Exception as e:
+            logger.debug(f"partition '{kb_name}' load: {e}")
+
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        qv = _emb.embed_query(query)
+        results = collection.search(
+            data=[qv],
+            anns_field="vector",
+            param={"metric_type": "L2", "params": {"nprobe": 16}},
+            limit=k,
+            partition_names=[kb_name],
+            output_fields=["content", "metadata"],
+        )
+        docs: List[Document] = []
+        for hit in results[0]:
+            docs.append(Document(
+                page_content=hit.entity.get("content") or "",
+                metadata=hit.entity.get("metadata") or {},
+            ))
+        logger.debug(f"partition '{kb_name}' 检索 query='{query[:30]}' 命中 {len(docs)}")
+        return docs
 
 
 # 全局单例
