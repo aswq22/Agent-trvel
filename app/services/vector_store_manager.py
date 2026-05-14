@@ -148,6 +148,49 @@ class VectorStoreManager:
             logger.error(f"相似度搜索失败: {e}")
             return []
 
+    # ── Partition operations (XHS RAG) ─────────────────────────────────
+
+    def ensure_partition(self, kb_name: str, description: str = "") -> None:
+        """幂等创建 partition。已存在则跳过。"""
+        collection = milvus_manager.get_collection()
+        if collection.has_partition(kb_name):
+            logger.debug(f"partition '{kb_name}' 已存在")
+            return
+        collection.create_partition(
+            partition_name=kb_name,
+            description=description,
+        )
+        logger.info(f"创建 partition '{kb_name}', description='{description}'")
+
+    def list_kb_partitions(self) -> List[dict]:
+        """列出所有 xhs_ 前缀的 partition。"""
+        collection = milvus_manager.get_collection()
+        result: List[dict] = []
+        for p in collection.partitions:
+            if not p.name.startswith("xhs_"):
+                continue
+            result.append({
+                "kb_name": p.name,
+                "num_entities": p.num_entities,
+                "description": getattr(p, "description", "") or "",
+            })
+        return result
+
+    def drop_kb_partition(self, kb_name: str) -> int:
+        """删除 partition；不存在返回 -1，否则返回被删向量数。"""
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            return -1
+        partition = collection.partition(kb_name)
+        n = partition.num_entities
+        try:
+            partition.release()
+        except Exception as e:
+            logger.warning(f"release partition '{kb_name}' 失败（可能未加载）: {e}")
+        collection.drop_partition(kb_name)
+        logger.info(f"删除 partition '{kb_name}', 释放 {n} 向量")
+        return n
+
 
 # 全局单例
 vector_store_manager = VectorStoreManager()
