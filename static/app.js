@@ -1036,12 +1036,59 @@ class SuperBizAgentApp {
         const kbName = itemEl.dataset.kb;
         const action = e.target.closest('[data-action]')?.dataset.action;
 
-        if (action === 'delete-prompt' || action === 'delete-confirm' || action === 'delete-cancel') {
-            // implemented in Task 6
+        if (action === 'delete-prompt') {
+            e.stopPropagation();
+            this.enterDeleteConfirmMode(itemEl);
+            return;
+        }
+        if (action === 'delete-confirm') {
+            e.stopPropagation();
+            this.deleteKb(kbName);
+            return;
+        }
+        if (action === 'delete-cancel') {
+            e.stopPropagation();
+            this.renderKbList();   // 整列重渲染 = 退出确认态最简单
             return;
         }
         // 默认：点空白 = 选中
         this.selectKb(kbName);
+    }
+
+    enterDeleteConfirmMode(itemEl) {
+        // 切到 confirming 态：替换 .kb-item-delete 按钮为两个确认按钮
+        itemEl.classList.add('confirming');
+        const meta = itemEl.querySelector('.kb-item-meta');
+        if (meta) meta.textContent = '确认删除？此操作不可恢复';
+        const deleteBtn = itemEl.querySelector('.kb-item-delete');
+        if (!deleteBtn) return;
+        const actions = document.createElement('div');
+        actions.className = 'kb-item-confirm-actions';
+        actions.innerHTML = `
+            <button class="kb-item-confirm-yes" data-action="delete-confirm" type="button">删除</button>
+            <button class="kb-item-confirm-no"  data-action="delete-cancel"  type="button">取消</button>
+        `;
+        deleteBtn.replaceWith(actions);
+    }
+
+    async deleteKb(kbName) {
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/kb/${encodeURIComponent(kbName)}`, {
+                method: 'DELETE',
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '删除失败');
+            // 若删的是当前选中的 KB，清空选择
+            if (this.kb.selectedName === kbName) {
+                this.kb.selectedName = null;
+                localStorage.removeItem('xhs_selected_kb');
+            }
+            await this.fetchKbList();
+            this.showNotification('知识库已删除', 'success');
+        } catch (e) {
+            this.showNotification(`删除失败：${e.message}`, 'error');
+        }
     }
 
     onIngestClick() {
