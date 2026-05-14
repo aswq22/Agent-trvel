@@ -919,8 +919,78 @@ class SuperBizAgentApp {
         if (this.kbBar) this.kbBar.classList.remove('warn');
     }
 
-    // fetchKbList 占位 —— Task 4 实现
-    async fetchKbList() { /* implemented in Task 4 */ }
+    async fetchKbList() {
+        if (!this.kbList) return;
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/kb/list`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '加载失败');
+            this.kb.list = body.data.kbs || [];
+            this.kb.loaded = true;
+            // 失效校验：localStorage 中的 selectedName 不存在则清空
+            if (this.kb.selectedName && !this.kb.list.find(x => x.kb_name === this.kb.selectedName)) {
+                this.kb.selectedName = null;
+                localStorage.removeItem('xhs_selected_kb');
+            }
+            this.renderKbList();
+            this.refreshKbBarLabel();
+        } catch (e) {
+            this.renderKbList([], `加载失败：${e.message}`);
+        }
+    }
+
+    renderKbList(overrideList = null, emptyMsg = '') {
+        const list = overrideList || this.kb.list;
+        if (this.kbListCount) this.kbListCount.textContent = `(${list.length})`;
+        if (!this.kbList) return;
+        this.kbList.innerHTML = '';
+        if (!list.length) {
+            if (this.kbEmpty) {
+                this.kbEmpty.style.display = '';
+                this.kbEmpty.textContent = emptyMsg || '还没有知识库，先用上面的表单搜索一个吧';
+            }
+            return;
+        }
+        if (this.kbEmpty) this.kbEmpty.style.display = 'none';
+        for (const kb of list) {
+            const div = document.createElement('div');
+            const isActive = kb.kb_name === this.kb.selectedName;
+            div.className = 'kb-item' + (isActive ? ' active' : '');
+            div.dataset.kb = kb.kb_name;
+            const displayName = kb.description || kb.kb_name;
+            const meta = `${kb.num_entities} 块 · ${kb.created_at || '—'}`;
+            div.innerHTML = `
+                ${isActive ? '<span class="kb-item-active-mark"></span>' : ''}
+                <div class="kb-item-main">
+                    <div class="kb-item-name" title="${this.escapeHtml(kb.kb_name)}">${this.escapeHtml(displayName)}</div>
+                    <div class="kb-item-meta">${this.escapeHtml(meta)}</div>
+                </div>
+                <button class="kb-item-delete" data-action="delete-prompt" title="删除" type="button">🗑</button>
+            `;
+            this.kbList.appendChild(div);
+        }
+    }
+
+    selectKb(name, closeDrawer = true) {
+        this.kb.selectedName = name;
+        if (name) localStorage.setItem('xhs_selected_kb', name);
+        else      localStorage.removeItem('xhs_selected_kb');
+        this.renderKbList();
+        this.refreshKbBarLabel();
+        if (closeDrawer) this.closeKbDrawer();
+        // 触发被无 KB 拦截的待发问题
+        if (this.kb.pendingSendAfterSelect && this.kb.pendingQuestion) {
+            const q = this.kb.pendingQuestion;
+            this.kb.pendingSendAfterSelect = false;
+            this.kb.pendingQuestion = '';
+            if (this.messageInput) this.messageInput.value = q;
+            this.sendMessage();
+        }
+    }
+
+    // closeKbDrawer 占位 —— Task 5 实现
+    closeKbDrawer() { /* implemented in Task 5 */ }
 }
 
 // 动画
