@@ -1,0 +1,74 @@
+"""tests for /api/chat/rag and /api/chat/rag_stream"""
+
+import json
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
+
+
+@pytest.fixture(scope="module")
+def chat_rag_module():
+    """First-load chat_rag with Milvus mocked."""
+    if "app.api.chat_rag" not in sys.modules:
+        with patch("app.core.milvus_client.milvus_manager"), \
+             patch("langchain_milvus.Milvus"):
+            from app.api import chat_rag  # noqa: F401
+    from app.api import chat_rag
+    return chat_rag
+
+
+@pytest.fixture
+def client(chat_rag_module):
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(chat_rag_module.router, prefix="/api")
+    return TestClient(app)
+
+
+def _ctx_with_hits():
+    from app.services.rag_service import RagContext, Citation
+    return RagContext(
+        messages=[],
+        citations=[Citation(title="T", url="u", author="a", likes=9)],
+        hit_count=1,
+    )
+
+
+def test_chat_rag_missing_kb_name_returns_400(client):
+    resp = client.post("/api/chat/rag",
+                       json={"Question": "q", "session_id": "s1"})
+    body = resp.json()
+    assert body["code"] == 400
+    assert "kb_name" in body["message"]
+
+
+def test_chat_rag_happy_path(client):
+    fake_llm = MagicMock()
+    fake_llm.ainvoke = AsyncMock(return_value=AIMessage(content="答案"))
+    with patch("app.api.chat_rag.build_rag_context", return_value=_ctx_with_hits()), \
+         patch("app.api.chat_rag.LLMFactory.create_travel_llm", return_value=fake_llm), \
+         patch("app.api.chat_rag.session_store") as ss:
+        ss.get.return_value = []
+        resp = client.post("/api/chat/rag",
+                           json={"Question": "成都美食",
+                                 "session_id": "s1",
+                                 "kb_name": "xhs_a_20260514_120000"})
+    body = resp.json()
+    assert body["code"] == 200
+    assert body["data"]["answer"] == "答案"
+    assert body["data"]["citations"][0]["title"] == "T"
+    assert body["data"]["hit_count"] == 1
+
+
+def test_chat_rag_kb_not_found_returns_404(client):
+    from app.services.vector_store_manager import KBNotFoundError
+    with patch("app.api.chat_rag.build_rag_context",
+               side_effect=KBNotFoundError("nope")):
+        resp = client.post("/api/chat/rag",
+                           json={"Question": "q",
+                                 "session_id": "s1",
+                                 "kb_name": "xhs_missing"})
+    assert resp.json()["code"] == 404
