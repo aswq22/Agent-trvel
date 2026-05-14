@@ -84,3 +84,54 @@ async def chat_rag(request: RagChatRequest):
             "errorMessage": None,
         },
     }
+
+
+@router.post("/chat/rag_stream")
+async def chat_rag_stream(request: RagChatRequest):
+    err = _validate(request)
+    sid = _sid(request)
+
+    async def generate():
+        if err:
+            yield f"data: {json.dumps({'type':'error','data':err['message']}, ensure_ascii=False)}\n\n"
+            return
+
+        history = session_store.get(sid)
+        top_k = request.top_k or config.rag_top_k
+
+        try:
+            ctx = build_rag_context(
+                question=request.Question,
+                history=history,
+                kb_name=request.kb_name,
+                top_k=top_k,
+            )
+        except KBNotFoundError as e:
+            yield f"data: {json.dumps({'type':'error','data':str(e)}, ensure_ascii=False)}\n\n"
+            return
+        except Exception as e:
+            logger.exception("build_rag_context error: {}", repr(e))
+            yield f"data: {json.dumps({'type':'error','data':str(e)}, ensure_ascii=False)}\n\n"
+            return
+
+        citations_payload = [asdict(c) for c in ctx.citations]
+        yield f"data: {json.dumps({'type':'citations','data':citations_payload}, ensure_ascii=False)}\n\n"
+
+        full = ""
+        try:
+            llm = LLMFactory.create_travel_llm(temperature=0.7, streaming=True)
+            async for chunk in llm.astream(ctx.messages):
+                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if content:
+                    full += content
+                    yield f"data: {json.dumps({'type':'content','data':content}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("llm stream error: {}", repr(e))
+            yield f"data: {json.dumps({'type':'error','data':str(e)}, ensure_ascii=False)}\n\n"
+            return
+
+        session_store.append(sid, "user", request.Question)
+        session_store.append(sid, "assistant", full)
+        yield f"data: {json.dumps({'type':'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

@@ -72,3 +72,53 @@ def test_chat_rag_kb_not_found_returns_404(client):
                                  "session_id": "s1",
                                  "kb_name": "xhs_missing"})
     assert resp.json()["code"] == 404
+
+
+def _async_chunk_iter(chunks):
+    """构造一个 async iterator，仿 LLM astream 输出。"""
+    async def _gen():
+        for c in chunks:
+            chunk = MagicMock()
+            chunk.content = c
+            yield chunk
+    return _gen()
+
+
+def test_chat_rag_stream_emits_citations_then_content_then_done(client):
+    fake_llm = MagicMock()
+    fake_llm.astream = MagicMock(return_value=_async_chunk_iter(["答", "案"]))
+
+    with patch("app.api.chat_rag.build_rag_context", return_value=_ctx_with_hits()), \
+         patch("app.api.chat_rag.LLMFactory.create_travel_llm", return_value=fake_llm), \
+         patch("app.api.chat_rag.session_store") as ss:
+        ss.get.return_value = []
+        with client.stream("POST", "/api/chat/rag_stream",
+                           json={"Question": "q",
+                                 "session_id": "s1",
+                                 "kb_name": "xhs_a_20260514_120000"}) as resp:
+            assert resp.status_code == 200
+            events = []
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+
+    assert events[0]["type"] == "citations"
+    assert events[0]["data"][0]["title"] == "T"
+    types = [e["type"] for e in events]
+    assert "content" in types
+    assert events[-1]["type"] == "done"
+
+
+def test_chat_rag_stream_kb_not_found_emits_error(client):
+    from app.services.vector_store_manager import KBNotFoundError
+    with patch("app.api.chat_rag.build_rag_context",
+               side_effect=KBNotFoundError("nope")):
+        with client.stream("POST", "/api/chat/rag_stream",
+                           json={"Question": "q",
+                                 "session_id": "s1",
+                                 "kb_name": "xhs_missing"}) as resp:
+            events = []
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+    assert any(e["type"] == "error" for e in events)
