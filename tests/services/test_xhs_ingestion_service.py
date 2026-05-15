@@ -30,24 +30,27 @@ def _isolate_vsm():
     sys.modules.pop("app.services.vector_store_manager", None)
 
 
-def test_make_kb_name_format(_isolate_vsm):
+def test_make_kb_name_format_city_only(_isolate_vsm):
     svc = _isolate_vsm
-    name = svc._make_kb_name("美食攻略", "成都")
-    assert re.match(r"^xhs_[0-9a-f]{8}_\d{8}_\d{6}$", name)
+    name = svc._make_kb_name("成都")
+    assert re.match(r"^xhs_[0-9a-f]{8}$", name)
 
 
-def test_make_kb_name_empty_city_still_valid(_isolate_vsm):
+def test_make_kb_name_empty_city_returns_global(_isolate_vsm):
     svc = _isolate_vsm
-    name = svc._make_kb_name("关键词", "")
-    assert re.match(r"^xhs_[0-9a-f]{8}_\d{8}_\d{6}$", name)
+    assert svc._make_kb_name("") == "xhs_global"
+    assert svc._make_kb_name("   ") == "xhs_global"
+    assert svc._make_kb_name(None) == "xhs_global"
 
 
-def test_make_kb_name_deterministic_per_input(_isolate_vsm):
-    """同 keyword+city 的 hex 短哈希应一致（时间戳除外）。"""
+def test_make_kb_name_deterministic_per_city(_isolate_vsm):
+    """同 city 永远映射到同一 partition（无时间戳分量）。"""
     svc = _isolate_vsm
-    n1 = svc._make_kb_name("k", "c")
-    n2 = svc._make_kb_name("k", "c")
-    assert n1.split("_")[1] == n2.split("_")[1]
+    assert svc._make_kb_name("成都") == svc._make_kb_name("成都")
+    # 不同 city 产生不同 hash
+    assert svc._make_kb_name("成都") != svc._make_kb_name("北京")
+    # 前后空格不影响
+    assert svc._make_kb_name("成都") == svc._make_kb_name("  成都  ")
 
 
 def test_ingest_notes_creates_partition_and_inserts(_isolate_vsm):

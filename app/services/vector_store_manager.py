@@ -225,6 +225,47 @@ class VectorStoreManager:
         logger.info(f"partition '{kb_name}' 入库 {len(ids)} 向量")
         return ids
 
+    def similarity_search_across_kb_partitions(
+        self, query: str, k: int = 3,
+    ) -> List[Document]:
+        """跨所有 xhs_* partition 做向量检索（不污染 _default 等其他来源）。
+
+        无 xhs_ partition 时返回空列表（不抛错）。
+        """
+        collection = milvus_manager.get_collection()
+        kb_partitions = [p.name for p in collection.partitions if p.name.startswith("xhs_")]
+        if not kb_partitions:
+            return []
+
+        # 每个 partition 都 load 一遍（已加载是 no-op）
+        for name in kb_partitions:
+            try:
+                collection.partition(name).load()
+            except Exception as e:
+                logger.debug(f"partition '{name}' load: {e}")
+
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        qv = _emb.embed_query(query)
+        results = collection.search(
+            data=[qv],
+            anns_field="vector",
+            param={"metric_type": "L2", "params": {"nprobe": 16}},
+            limit=k,
+            partition_names=kb_partitions,
+            output_fields=["content", "metadata"],
+        )
+        docs: List[Document] = []
+        for hit in results[0]:
+            docs.append(Document(
+                page_content=hit.entity.get("content") or "",
+                metadata=hit.entity.get("metadata") or {},
+            ))
+        logger.debug(
+            f"跨 {len(kb_partitions)} 个 xhs_ partition 检索 query='{query[:30]}' 命中 {len(docs)}"
+        )
+        return docs
+
     def similarity_search_in_partition(
         self, query: str, kb_name: str, k: int = 3,
     ) -> List[Document]:

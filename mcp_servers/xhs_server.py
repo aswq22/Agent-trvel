@@ -155,21 +155,52 @@ async def _real_search(keyword: str, city: str, count: int) -> list[dict]:
     notes: list[dict] = []
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        # 等笔记卡片渲染（XHS 用 section.note-item 或 a[href*='/explore/']）
-        try:
-            await page.wait_for_selector("a[href*='/explore/']", timeout=15000)
-        except Exception:
-            # 没等到 = 风控/未登录/无结果
-            html = await page.content()
-            if "登录" in html or "验证" in html:
-                raise RuntimeError("XHS 要求登录或显示验证码 — 请刷新 cookie")
-            return []
+        # 等笔记卡片渲染——多个 selector 任一命中即可
+        selectors = [
+            "section.note-item",
+            "a[href*='/explore/']",
+            "a[href*='/discovery/item/']",
+            "a[href*='/search_result/']",
+        ]
+        matched_selector = None
+        for sel in selectors:
+            try:
+                await page.wait_for_selector(sel, timeout=4000)
+                matched_selector = sel
+                break
+            except Exception:
+                continue
+
+        if matched_selector is None:
+            # 一个都没等到 —— 把现场存下来供调试
+            import os as _os
+            dbg_dir = _os.path.dirname(_os.path.abspath(__file__))
+            png_path = _os.path.join(dbg_dir, "xhs_debug.png")
+            html_path = _os.path.join(dbg_dir, "xhs_debug.html")
+            try:
+                await page.screenshot(path=png_path, full_page=True)
+                html = await page.content()
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(html)
+                hint = ""
+                if "登录" in html: hint = "（页面含'登录'字样，cookie 可能失效）"
+                elif "验证" in html: hint = "（页面含'验证'字样，被风控）"
+                elif "<title>404" in html or "404 Not Found" in html: hint = "（404 — URL 不对？）"
+                raise RuntimeError(
+                    f"XHS 页面未渲染出笔记卡片{hint}。已存截图 {png_path} 和 HTML {html_path}"
+                )
+            except Exception as e:
+                if "XHS 页面未渲染出" in str(e):
+                    raise
+                raise RuntimeError(f"XHS 页面调试 dump 失败: {e}")
 
         # 给懒加载几百毫秒
         await page.wait_for_timeout(800)
 
-        # 抓所有指向笔记详情的链接
-        anchors = await page.locator("a[href*='/explore/']").all()
+        # 抓所有指向笔记详情的链接（兼容多种 URL 结构）
+        anchors = await page.locator(
+            "a[href*='/explore/'], a[href*='/discovery/item/'], a[href*='/search_result/']"
+        ).all()
         seen_ids: set[str] = set()
         for a in anchors:
             if len(notes) >= count:

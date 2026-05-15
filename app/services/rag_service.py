@@ -1,7 +1,7 @@
 """RAG 上下文构造：检索 + prompt 拼接 + citations 去重。"""
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -81,17 +81,24 @@ def _history_to_lc(history: List[dict]) -> List[BaseMessage]:
 def build_rag_context(
     question: str,
     history: List[dict],
-    kb_name: str,
+    kb_name: Optional[str] = None,
     top_k: int = 3,
 ) -> RagContext:
-    """检索 kb_name → 构造 messages + citations。
+    """检索 → 构造 messages + citations。
 
-    KB 不存在时抛 KBNotFoundError（来自 vector_store_manager）。
+    kb_name 给定 → 仅在该 partition 检索；KB 不存在时抛 KBNotFoundError。
+    kb_name 为 None / '' → 跨所有 xhs_* partition 检索（全局）。
     """
-    docs = vector_store_manager.similarity_search_in_partition(
-        query=question, kb_name=kb_name, k=top_k,
-    )
-    logger.info(f"RAG kb='{kb_name}' query='{question[:30]}' hits={len(docs)}")
+    if kb_name:
+        docs = vector_store_manager.similarity_search_in_partition(
+            query=question, kb_name=kb_name, k=top_k,
+        )
+        logger.info(f"RAG kb='{kb_name}' query='{question[:30]}' hits={len(docs)}")
+    else:
+        docs = vector_store_manager.similarity_search_across_kb_partitions(
+            query=question, k=top_k,
+        )
+        logger.info(f"RAG kb=<all> query='{question[:30]}' hits={len(docs)}")
 
     if docs:
         sys_content = _SYSTEM_PROMPT_WITH_CONTEXT.format(

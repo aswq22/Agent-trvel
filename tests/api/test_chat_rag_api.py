@@ -37,12 +37,23 @@ def _ctx_with_hits():
     )
 
 
-def test_chat_rag_missing_kb_name_returns_400(client):
-    resp = client.post("/api/chat/rag",
-                       json={"Question": "q", "session_id": "s1"})
+def test_chat_rag_missing_kb_name_falls_back_to_global(client):
+    """v2: 未传 kb_name 不再返 400，而是走全局检索（build_rag_context kb_name=None）"""
+    from langchain_core.messages import AIMessage
+    fake_llm = MagicMock()
+    fake_llm.ainvoke = AsyncMock(return_value=AIMessage(content="全局答案"))
+    with patch("app.api.chat_rag.build_rag_context", return_value=_ctx_with_hits()) as build_ctx, \
+         patch("app.api.chat_rag.LLMFactory.create_travel_llm", return_value=fake_llm), \
+         patch("app.api.chat_rag.session_store") as ss:
+        ss.get.return_value = []
+        resp = client.post("/api/chat/rag",
+                           json={"Question": "q", "session_id": "s1"})
     body = resp.json()
-    assert body["code"] == 400
-    assert "kb_name" in body["message"]
+    assert body["code"] == 200
+    assert body["data"]["answer"] == "全局答案"
+    # build_rag_context 调用时 kb_name 应该是空字符串（来自 RagChatRequest 默认）
+    _, kwargs = build_ctx.call_args
+    assert kwargs.get("kb_name") == "" or kwargs.get("kb_name") is None
 
 
 def test_chat_rag_happy_path(client):

@@ -478,15 +478,6 @@ class SuperBizAgentApp {
         if (!message) { this.showNotification('请输入内容', 'warning'); return; }
         if (this.isStreaming) { this.showNotification('请等待当前对话完成', 'warning'); return; }
 
-        // RAG 前置：未选 KB → 缓存问题、shake KB bar、弹抽屉
-        if (this.appMode !== 'travel' && this.currentMode === 'rag' && !this.kb.selectedName) {
-            this.kb.pendingSendAfterSelect = true;
-            this.kb.pendingQuestion = message;
-            if (this.kbBar) this.kbBar.classList.add('warn');
-            this.openKbDrawer({ refresh: true });
-            return;
-        }
-
         this.addMessage('user', message);
         if (this.messageInput) this.messageInput.value = '';
         this.isStreaming = true;
@@ -940,17 +931,14 @@ class SuperBizAgentApp {
     refreshKbBarLabel() {
         if (!this.kbBarSelectedName) return;
         if (!this.kb.selectedName) {
-            this.kbBarSelectedName.textContent = '请选择知识库';
-            this.kbBarSelectedName.classList.add('kb-bar-placeholder');
-            this.kbBarSelectedName.title = '';
+            this.kbBarSelectedName.textContent = '🌐 全部知识库';
+            this.kbBarSelectedName.title = '未选择具体知识库时，跨所有 xhs 分区检索';
         } else {
             const item = this.kb.list.find(x => x.kb_name === this.kb.selectedName);
-            const fallback = this.kb.selectedName.split('_').pop();
-            this.kbBarSelectedName.textContent = (item && item.description) || fallback;
-            this.kbBarSelectedName.classList.remove('kb-bar-placeholder');
+            const label = (item && item.description) || '(未命名)';
+            this.kbBarSelectedName.textContent = label;
             this.kbBarSelectedName.title = this.kb.selectedName;
         }
-        // 用户操作意图改变后清掉警告动画
         if (this.kbBar) this.kbBar.classList.remove('warn');
     }
 
@@ -980,6 +968,21 @@ class SuperBizAgentApp {
         if (this.kbListCount) this.kbListCount.textContent = `(${list.length})`;
         if (!this.kbList) return;
         this.kbList.innerHTML = '';
+
+        // 列表顶部固定一项「🌐 全部知识库」，data-kb="" → selectKb(null) 走全局
+        const allItem = document.createElement('div');
+        const allActive = !this.kb.selectedName;
+        allItem.className = 'kb-item kb-item-all' + (allActive ? ' active' : '');
+        allItem.dataset.kb = '';
+        allItem.innerHTML = `
+            ${allActive ? '<span class="kb-item-active-mark"></span>' : ''}
+            <div class="kb-item-main">
+                <div class="kb-item-name">🌐 全部知识库</div>
+                <div class="kb-item-meta">跨所有 xhs 分区检索（默认）</div>
+            </div>
+        `;
+        this.kbList.appendChild(allItem);
+
         if (!list.length) {
             if (this.kbEmpty) {
                 this.kbEmpty.style.display = '';
@@ -993,7 +996,7 @@ class SuperBizAgentApp {
             const isActive = kb.kb_name === this.kb.selectedName;
             div.className = 'kb-item' + (isActive ? ' active' : '');
             div.dataset.kb = kb.kb_name;
-            const displayName = kb.description || kb.kb_name;
+            const displayName = kb.description || '(未命名)';
             const meta = `${kb.num_entities} 块 · ${kb.created_at || '—'}`;
             div.innerHTML = `
                 ${isActive ? '<span class="kb-item-active-mark"></span>' : ''}
@@ -1044,7 +1047,8 @@ class SuperBizAgentApp {
     onKbListClick(e) {
         const itemEl = e.target.closest('.kb-item');
         if (!itemEl) return;
-        const kbName = itemEl.dataset.kb;
+        // 空 data-kb = "全部知识库" 项 → selectKb(null) 切回全局
+        const kbName = itemEl.dataset.kb || null;
         const action = e.target.closest('[data-action]')?.dataset.action;
 
         if (action === 'delete-prompt') {

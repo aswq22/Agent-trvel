@@ -32,8 +32,7 @@ def _sid(req: RagChatRequest) -> str:
 def _validate(req: RagChatRequest):
     if not req.Question.strip():
         return {"code": 400, "message": "Question 不能为空", "data": None}
-    if not req.kb_name.strip():
-        return {"code": 400, "message": "kb_name 必填", "data": None}
+    # kb_name 可选；空字符串等价于"全部知识库"
     return None
 
 

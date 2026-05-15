@@ -2229,9 +2229,11 @@ body {
 .kb-bar {
     display: none;
     align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 14px;
     margin: 0 auto 8px;
+    width: fit-content;
     max-width: 760px;
     background: #fef7e6;
     border: 1px solid #fce7b8;

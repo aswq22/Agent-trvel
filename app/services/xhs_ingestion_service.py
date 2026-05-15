@@ -18,12 +18,16 @@ _splitter = RecursiveCharacterTextSplitter(
 )
 
 
-def _make_kb_name(keyword: str, city: str) -> str:
-    """生成 partition 名：xhs_<md5前8位>_<YYYYMMDD>_<HHMMSS>"""
-    seed = f"{keyword}|{city}".encode("utf-8")
-    short = hashlib.md5(seed).hexdigest()[:8]
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"xhs_{short}_{ts}"
+def _make_kb_name(city: str) -> str:
+    """按 city 分库：同 city 永远映射到同一个 partition。
+
+    - city 为空 → 固定常量 'xhs_global'
+    - city 非空 → 'xhs_<md5(city)[:8]>'（确定性，方便同 city 多次入库追加）
+    """
+    if not city or not city.strip():
+        return "xhs_global"
+    short = hashlib.md5(city.strip().encode("utf-8")).hexdigest()[:8]
+    return f"xhs_{short}"
 
 
 def _note_to_docs(note: dict) -> List[Document]:
@@ -108,8 +112,8 @@ async def ingest_from_mcp(
         return {"kb_name": None, "ingested": 0, "chunks": 0,
                 "keyword": keyword, "city": city}
 
-    kb_name = _make_kb_name(keyword, city)
-    description = f"{keyword}|{city}"
+    kb_name = _make_kb_name(city)
+    description = city.strip() if city and city.strip() else "全部地区"
     result = ingest_notes(notes, kb_name=kb_name, description=description)
     return {"kb_name": kb_name, **result, "keyword": keyword, "city": city}
 
@@ -130,7 +134,7 @@ def ingest_raw_text(
         "likes": 0,
     }
     if not kb_name:
-        kb_name = f"xhs_manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    description = f"manual|{city}"
+        kb_name = _make_kb_name(city)
+    description = city.strip() if city and city.strip() else "手动入库"
     result = ingest_notes([note], kb_name=kb_name, description=description)
     return {"kb_name": kb_name, **result}
