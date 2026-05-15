@@ -1,523 +1,738 @@
-# SuperBizAgent
+# SuperBizAgent — 智能旅游助手 + 动态 RAG 知识库
 
-> 企业级智能对话和运维助手，支持 RAG 知识库问答和 AIOps 智能诊断
+> 基于 LangChain / LangGraph / FastAPI / Milvus 的多功能智能助手。当前阶段聚焦：**小红书动态 RAG 知识库** + **旅游多智能体规划**。
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
-[![LangChain](https://img.shields.io/badge/LangChain-latest-orange.svg)](https://www.langchain.com/)
+[![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com/)
+[![Milvus](https://img.shields.io/badge/Milvus-2.3+-00A1EA.svg)](https://milvus.io/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](#许可证)
 
-## ✨ 核心特性
+---
 
-- 🤖 **智能对话** - LangChain 多轮对话 + 流式输出
-- 📚 **RAG 问答** - 向量检索增强，支持文档上传、自动建立向量索引、自动更新知识库
-- 📕 **小红书 RAG** - 通过 MCP 抓取小红书旅游攻略动态建立 Milvus 分区，聊天时手动切换知识库（详见末尾章节）
-- 🔧 **AIOps 诊断** - Plan-Execute-Replan 自动故障诊断和根因分析
-- 🌐 **Web 界面** - 现代化 UI，支持多种对话模式：快速问答/流式对话
-- 🔌 **MCP 集成** - 日志查询和监控数据工具接入
+## 目录
 
-## 🛠️ 技术栈
+- [一、项目简介](#一项目简介)
+- [二、技术栈](#二技术栈)
+- [三、全链路跑通流程](#三全链路跑通流程)
+- [四、功能详解](#四功能详解)
+- [五、API 接口](#五api-接口)
+- [六、.env 配置](#六env-配置)
+- [七、测试用例](#七测试用例)
+- [八、项目演进过程](#八项目演进过程)
+- [九、系统架构](#九系统架构)
+- [十、故障排查](#十故障排查)
+- [十一、已知限制与后续方向](#十一已知限制与后续方向)
+- [许可证](#许可证)
 
-- **框架**: FastAPI + LangChain + LangGraph
-- **LLM**: 阿里云 DashScope (通义千问)
-- **向量库**: Milvus
-- **工具协议**: MCP (Model Context Protocol)
+---
 
-## 🚀 快速开始
+## 一、项目简介
 
-### 环境要求
-- Python 3.10+
-- 阿里云 DashScope API Key ([获取地址](https://dashscope.aliyun.com/))
+SuperBizAgent 是一个支持多种 AI 助手功能的整合性项目，由 5 条相对独立的功能链路组成：
 
-### 安装和启动
+| 编号 | 功能 | 入口 API | 必须的进程 |
+|---|---|---|---|
+| ① | 普通对话 | `/api/chat`、`/api/chat_stream` | 主服务 |
+| ② | 文件 RAG | `/api/upload` | 主服务 + Milvus |
+| ③ | **小红书动态 RAG** ⭐ | `/api/chat/rag`、`/api/xhs/*` | 主服务 + Milvus + xhs MCP |
+| ④ | 旅游多智能体 | `/api/travel/plan` | 主服务 + 高德/携程/大众点评 MCP |
+| ⑤ | AIOps 故障诊断 | `/api/aiops` | 主服务 + cls/monitor MCP |
 
-#### Linux/macOS 环境
+按需启动对应进程即可，不用全部跑。
 
-```bash
-# 1. 克隆项目
-git clone <repository_url>
-cd super_biz_agent_py
+### 本项目最新交付（功能 ③）
 
-# 2. 安装依赖（推荐使用 uv）
-# 方式 1: 使用 uv（推荐，更快）
-pip install uv
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+**小红书动态 RAG** 端到端打通：
 
-# 方式 2: 使用 pip
-pip install -e .
+- 用户在前端「RAG · 小红书」子模式下，可**按需**抓取小红书旅游攻略入 Milvus
+- **按城市分库**：同一城市多次入库会**追加**到同一 partition；不同城市分库存储
+- 聊天时**自由选择**知识库：选某城市 → 在该 partition 检索；不选 → 跨所有 xhs 分区**全局检索**
+- LLM 回答时自动展示**引用来源**：可折叠卡片显示笔记标题、作者、点赞数、链接
+- 数据流：**Playwright MCP 抓取 → 切块 → 本地 embedding → Milvus partition → 检索 → SSE 流式 LLM**
 
-# 3. 编辑配置文件
-# 首次使用需要编辑 .env 文件，填入你的 DASHSCOPE_API_KEY
-vim .env  # 或使用其他编辑器
+---
 
-# 4. 一键初始化（启动 Docker + 服务 + 上传文档）
-make init
+## 二、技术栈
 
-# 5. 一键启动
-make start
-```
+### 2.1 整体选型
 
-#### Windows 环境（PowerShell/CMD）
+| 层 | 技术 | 选型理由 |
+|---|---|---|
+| Web 框架 | **FastAPI 0.109+** + SSE-Starlette | 异步、auto OpenAPI 文档、SSE 一等公民 |
+| LLM 编排 | **LangChain 0.1+** + **LangGraph** | 链/Agent/图状态机；多 Agent 协作 |
+| LLM 推理 | **DeepSeek**(`deepseek-chat`) + DashScope fallback | DeepSeek 中文好且便宜；不放鸡蛋一篮子 |
+| 向量数据库 | **Milvus 2.3+** | 单机 docker 跑得起、原生 Partition 隔离 |
+| Embedding | **本地 BAAI/bge-small-zh-v1.5**（sentence-transformers 5.5+） | 512 维，~100MB，**0 元运行**，中文质量好 |
+| MCP 协议 | **fastmcp 2.x** | 工具拆独立进程，热插拔，CallToolResult dataclass |
+| 小红书抓取 | **Playwright 1.59+**（headless Chromium） | 避开 X-S 签名逆向；DOM 解析比内部 API 稳 |
+| 前端 | 纯 Vanilla JS + CDN（marked、highlight.js） | 项目要求零构建工具链 |
+| 持久化 | **SQLAlchemy 2.0+** + SQLite | 旅游攻略分享链接 |
+| 测试 | **pytest 9.0** + pytest-asyncio + pytest-mock | 77 单元测试 + 4 集成测试 |
+| 包管理 | **uv** | 比 pip 快 10×，自带虚拟环境 |
 
-如果Windows 不支持 `make` 命令，可以手动执行以下步骤以启动服务：
+### 2.2 XHS RAG 关键架构决策
+
+| 决策 | 选择 | 拒掉的方案 |
+|---|---|---|
+| 多 KB 隔离 | Milvus 原生 **Partition** | metadata 字段过滤（慢、删除麻烦）、多 collection（资源浪费） |
+| Embedding | **本地** sentence-transformers | DashScope（按调用收费）、OpenAI embeddings |
+| LLM 是否自动触发 RAG | 用户**手动**选 KB | LLM tool calling 决定（不可控） |
+| KB 粒度 | 按 **city**（同 city 多次入库追加） | 每次搜索独立 KB（很快泛滥成 50+） |
+| XHS 数据获取 | Playwright **抓 DOM** | 逆向 X-S 签名调内部 API（易碎） |
+| 引用展示 | 消息顶部**可折叠** | 消息底部 footnote（要 LLM 配合，不可靠） |
+| 命中 0 条时 | 仍走 LLM，prompt 改写"通用建议" | 返 404 错误（用户体验差） |
+
+---
+
+## 三、全链路跑通流程
+
+### 3.1 系统要求
+
+| 组件 | 版本 |
+|---|---|
+| OS | Windows 11 / macOS / Linux（本文以 Windows + PowerShell 为准） |
+| Python | **3.13**（`.python-version` 固定；3.10 不兼容） |
+| Docker Desktop | 跑 Milvus |
+| 包管理 | `uv`：`pip install uv` |
+| LLM Key | DeepSeek（推荐）或 DashScope |
+
+### 3.2 安装步骤
 
 ```powershell
-# 1. 克隆项目
-git clone <repository_url>
-cd super_biz_agent_py
+# 1. 克隆
+git clone <repo>
+cd super_biz_agent
 
-# 2. 创建虚拟环境并安装依赖
-# 方式 1: 使用 uv（推荐，更快）
-pip install uv
-# 创建虚拟环境
+# 2. 装依赖
 uv venv
-# 激活虚拟环境
 .venv\Scripts\activate
-# 安装所有依赖
 uv pip install -e .
 
-# 方式 2: 使用 pip
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
+# 3. 装 Playwright Chromium（用于 XHS 抓取）
+playwright install chromium
 
-# 3. 编辑配置文件
-# 使用记事本或其他编辑器打开 .env 文件，填入你的 DASHSCOPE_API_KEY
-notepad .env
+# 4. 新建 .env
+# 参考第六节复制完整模板，最小必填仅 DEEPSEEK_API_KEY
+```
 
-# 4. 启动 Docker Desktop
-# 确保 Docker Desktop 已安装并正在运行
+> **首次启动会从 HuggingFace 自动下载 `BAAI/bge-small-zh-v1.5` 模型（~100MB）到 `~/.cache/huggingface/`，仅一次。**
 
-# 5. 启动 Milvus 向量数据库（Docker Compose）
+### 3.3 三窗口最小启动（演示小红书 RAG）
+
+按顺序开 3 个 PowerShell 窗口，每个都先 `.venv\Scripts\activate`：
+
+```powershell
+# 窗口 1 — Milvus 向量数据库
 docker compose -f vector-database.yml up -d
+# 等 10s 看到 milvus-standalone: Up
 
-# 6. 等待 Milvus 启动完成（约 5-10 秒）
-timeout /t 10
+# 窗口 2 — 小红书 MCP（端口 8013）
+python mcp_servers/xhs_server.py
+# 看到 "Uvicorn running on http://0.0.0.0:8013" 即就绪
 
-# 7. 启动 MCP 服务
-# 启动 CLS 日志查询服务（新开一个 PowerShell 窗口）
-python mcp_servers/cls_server.py
-
-# 启动 Monitor 监控服务（新开一个 PowerShell 窗口）
-python mcp_servers/monitor_server.py
-
-# 8. 启动 FastAPI 主服务（新开一个 PowerShell 窗口）
-# 注意：日志会自动输出到 logs\app_YYYY-MM-DD.log
+# 窗口 3 — FastAPI 主服务（端口 9900）
 python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
-
-# 9. 上传文档到向量库（新开一个 PowerShell 窗口）
-# 等待服务启动完成后执行
-timeout /t 5
-python -c "import requests, os, time; [requests.post('http://localhost:9900/api/upload', files={'file': open(f'aiops-docs/{f}', 'rb')}) or time.sleep(1) for f in os.listdir('aiops-docs') if f.endswith('.md')]"
 ```
 
-**Windows 一键启动脚本**（推荐）
+**主服务启动成功标志：**
 
-使用启动脚本：
+```
+SuperBizAgent v1.0.0 启动中...
+监听地址: http://0.0.0.0:9900
+加载本地 embedding 模型: BAAI/bge-small-zh-v1.5 ...
+本地 Embeddings 初始化完成 — 维度: 512
+成功连接到 Milvus
+collection 'biz' 已加载
+```
+
+### 3.4 端到端冒烟测试
+
+新开第 4 个 PowerShell 窗口（curl 是 Windows 自带的，不用激活 venv）：
 
 ```powershell
-# 启动所有服务
-.\start-windows.bat
+# 1. 通过 MCP 抓取小红书笔记并入库到 partition 'xhs_<md5>'
+curl.exe -X POST http://localhost:9900/api/xhs/ingest/mcp `
+  -H "Content-Type: application/json" `
+  -d '{\"keyword\":\"美食\",\"city\":\"成都\",\"count\":5}'
 
-# 停止所有服务
-.\stop-windows.bat
+# 首次约 10-15s（Playwright 冷启 chromium）
+# 期望返回：
+# {"code":200,"data":{"kb_name":"xhs_xxxxxxxx","ingested":5,"chunks":5,
+#                     "keyword":"美食","city":"成都"}}
+
+# 2. 列出所有知识库
+curl.exe http://localhost:9900/api/xhs/kb/list
+# {"code":200,"data":{"total":1,"kbs":[{"kb_name":"xhs_xxxxxxxx",
+#                                       "description":"成都",
+#                                       "num_entities":5,...}]}}
+
+# 3. 基于该 KB 做 RAG 对话（流式）
+curl.exe -N -X POST http://localhost:9900/api/chat/rag_stream `
+  -H "Content-Type: application/json" `
+  -d '{\"Question\":\"成都必吃美食\",\"session_id\":\"smoke-1\",\"kb_name\":\"xhs_xxxxxxxx\"}'
+# 预期 SSE 流：
+# data: {"type":"citations","data":[{...}]}     ← 引用先到
+# data: {"type":"content","data":"根据小红书"}  ← 内容逐 chunk
+# data: {"type":"content","data":"攻略，建议..."}
+# ...
+# data: {"type":"done"}
+
+# 4. 全局检索（不传 kb_name）—— 跨所有 xhs_* 分区
+curl.exe -N -X POST http://localhost:9900/api/chat/rag_stream `
+  -H "Content-Type: application/json" `
+  -d '{\"Question\":\"哪个城市好玩\",\"session_id\":\"smoke-2\"}'
+
+# 5. 删除知识库
+curl.exe -X DELETE http://localhost:9900/api/xhs/kb/xhs_xxxxxxxx
 ```
 
-### 访问服务
-- **Web 界面**: http://localhost:9900
-- **API 文档**: http://localhost:9900/docs
+### 3.5 前端浏览器流程
 
-## 📡 API 接口
+打开 http://localhost:9900：
 
-### 核心接口
+1. 子模式下拉切到「**RAG · 小红书**」 → 输入框上方淡橙色 KB 选择条浮起（不挤压聊天区）
+2. 默认显示「🌐 全部知识库」表示跨分区检索
+3. 点 KB 选择条 → 右侧 420px 抽屉滑出
+4. 抽屉顶部表单填入 关键词 + 城市 + 数量 → 点「搜索并入库」→ spinner → 入库成功 → 新 KB 自动选中
+5. 抽屉里点某个城市 KB → 抽屉关闭，KB bar 显示「📍 成都」
+6. 输入问题 → 发送 → 助手回答顶部出现可折叠的「📕 基于 N 条小红书攻略」+ 流式正文
 
-| 功能 | 方法 | 路径 | 说明 |
-|------|------|------|------|
-| 普通对话 | POST | `/api/chat` | 一次性返回 |
-| 流式对话 | POST | `/api/chat_stream` | SSE 流式输出 |
-| AIOps 诊断 | POST | `/api/aiops` | 自动故障诊断（流式） |
-| 文件上传 | POST | `/api/upload` | 上传并索引文档 |
-| 健康检查 | GET | `/api/health` | 服务状态检查 |
-| RAG 对话 | POST | `/api/chat/rag` | 基于 XHS 知识库检索后回答（阻塞） |
-| RAG 流式对话 | POST | `/api/chat/rag_stream` | 同上，SSE 流式 |
-| MCP 入库 | POST | `/api/xhs/ingest/mcp` | 调小红书 MCP 搜索 → 自动建分区入库 |
-| 文本入库 | POST | `/api/xhs/ingest/text` | 手动粘贴笔记入库 |
-| 知识库列表 | GET | `/api/xhs/kb/list` | 列出所有 xhs_ 分区 |
-| 知识库删除 | DELETE | `/api/xhs/kb/{kb_name}` | 删除指定分区 |
+---
 
-### 使用示例
+## 四、功能详解
 
-```bash
-# 普通对话
-curl -X POST "http://localhost:9900/api/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"Id":"session-123","Question":"你好"}'
+### 4.1 普通对话（① 快速 / 流式）
 
-# 流式对话
-curl -X POST "http://localhost:9900/api/chat_stream" \
-  -H "Content-Type: application/json" \
-  -d '{"Id":"session-123","Question":"你好"}' \
-  --no-buffer
+- 快速模式 `/api/chat`：阻塞返回完整答案
+- 流式模式 `/api/chat_stream`：SSE 逐字推送
+- 同一 `session_id` 在所有聊天接口间历史**连续**
+- LLM 默认 DeepSeek，fallback DashScope
 
-# AIOps 诊断
-curl -X POST "http://localhost:9900/api/aiops" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"session-123"}' \
-  --no-buffer
-```
+### 4.2 文件 RAG（② 上传文档 + 索引）
 
-## 📁 项目结构
+- `POST /api/upload`（multipart）— 支持 `.md`/`.txt`/`.pdf`/`.docx`
+- 自动切块（`chunk_max_size=800` / `overlap=100`）入 Milvus `_default` 分区
+- 与 XHS RAG 的 `xhs_*` 分区**完全隔离**
+
+### 4.3 小红书动态 RAG（③ 本期核心）
+
+**数据流：**
 
 ```
-super_biz_agent_py/
-├── app/                                    # 应用核心
-│   ├── __init__.py                         # 包初始化（自动加载日志配置）
-│   ├── main.py                             # FastAPI 应用入口
-│   ├── config.py                           # 配置管理（环境变量、MCP 服务器配置）
-│   ├── api/                                # API 路由层
-│   │   ├── __init__.py
-│   │   ├── chat.py                         # 对话接口（RAG 聊天）
-│   │   ├── aiops.py                        # AIOps 接口（故障诊断）
-│   │   ├── file.py                         # 文件管理（文档上传）
-│   │   └── health.py                       # 健康检查（服务状态）
-│   ├── services/                           # 业务服务层
-│   │   ├── __init__.py
-│   │   ├── rag_agent_service.py            # RAG Agent（LangGraph 状态图）
-│   │   ├── aiops_service.py                # AIOps 服务（计划-执行-重规划）
-│   │   ├── vector_store_manager.py         # 向量存储管理器
-│   │   ├── vector_embedding_service.py     # 向量embedding服务
-│   │   ├── vector_index_service.py         # 向量索引服务
-│   │   ├── vector_search_service.py        # 向量检索服务
-│   │   └── document_splitter_service.py    # 文档分割服务
-│   ├── agent/                              # Agent 模块
-│   │   ├── __init__.py
-│   │   ├── mcp_client.py                   # MCP 客户端（工具调用）
-│   │   └── aiops/                          # AIOps 核心逻辑
-│   │       ├── __init__.py
-│   │       ├── planner.py                  # 计划制定器
-│   │       ├── executor.py                 # 步骤执行器
-│   │       ├── replanner.py                # 重规划器
-│   │       ├── state.py                    # 状态定义
-│   │       └── utils.py                    # 工具函数
-│   ├── models/                             # 数据模型层
-│   │   ├── __init__.py
-│   │   ├── aiops.py                        # AIOps 模型
-│   │   ├── document.py                     # 文档模型
-│   │   ├── request.py                      # 请求模型
-│   │   └── response.py                     # 响应模型
-│   ├── tools/                              # Agent 工具集
-│   │   ├── __init__.py
-│   │   ├── knowledge_tool.py               # 知识库查询工具
-│   │   └── time_tool.py                    # 时间工具
-│   ├── core/                               # 核心组件
-│   │   ├── __init__.py
-│   │   ├── llm_factory.py                  # LLM 工厂（模型管理）
-│   │   └── milvus_client.py                # Milvus 客户端
-│   └── utils/                              # 工具类
-│       ├── __init__.py
-│       └── logger.py                       # 日志配置（Loguru）
-├── static/                                 # Web 前端（纯静态）
-│   ├── index.html                          # 主页面
-│   ├── app.js                              # 前端逻辑
-│   └── styles.css                          # 样式表
-├── mcp_servers/                            # MCP 服务器
-│   ├── cls_server.py                       # CLS 日志查询服务
-│   ├── monitor_server.py                   # 监控数据服务
-│   └── README.md                           # MCP 服务说明
-├── aiops-docs/                             # 运维知识库（Markdown 文档）
-├── logs/                                   # 日志目录（Loguru 自动创建）
-│   └── app_YYYY-MM-DD.log                  # 按天轮转的日志文件
-├── uploads/                                # 上传文件临时目录
-├── volumes/                                # Milvus 数据持久化目录
-├── .env                                    # 环境变量配置（需手动创建）
-├── Makefile                                # 项目管理命令（Linux/macOS）
-├── start-windows.bat                       # Windows 启动脚本
-├── stop-windows.bat                        # Windows 停止脚本
-├── vector-database.yml                     # Milvus Docker Compose 配置
-├── pyproject.toml                          # 项目配置（依赖、元数据）
-├── uv.lock                                 # uv 依赖锁定文件
-├── pyrightconfig.json                      # Pyright 类型检查配置
-└── README.md                               # 项目说明
+入库链路（按需触发）
+└── POST /api/xhs/ingest/mcp { keyword, city, count }
+        ↓
+   xhs_ingestion_service
+   ├── kb_name = "xhs_<md5(city)前8位>"  (按 city 分库)
+   ├── 调 fastmcp Client → xhs_server (8013)
+   │       └── Playwright 启 chromium 打开
+   │           search_result?keyword=城市+关键词
+   │           解析 DOM 抽笔记列表
+   ├── 切块（RecursiveCharacterTextSplitter）
+   ├── 本地 embedding (BAAI/bge-small-zh-v1.5, 512 维)
+   └── pymilvus collection.insert(partition_name=kb_name)
+        ↓
+   返回 { kb_name, ingested, chunks, keyword, city }
+
+对话链路
+└── POST /api/chat/rag_stream { Question, session_id, kb_name? }
+        ↓
+   rag_service.build_rag_context
+   ├── kb_name 给定 → similarity_search_in_partition()
+   └── kb_name 空/null → similarity_search_across_kb_partitions()
+                          （只跨 xhs_* 分区，不污染 _default）
+        ↓
+   citations 按 note_id 去重
+   构造 messages = [SystemPrompt + 参考资料,
+                     ...history[-20:],
+                     HumanMessage]
+        ↓
+   LLMFactory.create_travel_llm(streaming=True).astream
+        ↓
+   SSE: citations → content × N → done
+
+管理链路
+├── GET    /api/xhs/kb/list           列出所有 xhs_* 分区
+└── DELETE /api/xhs/kb/{kb_name}       释放 + drop_partition
 ```
 
-## ⚙️ 配置说明
+**KB 命名**：`xhs_<md5(city.strip())前8位>`
 
-通过 `.env` 文件配置：
+- "成都" → `xhs_a3f9c1b2`
+- "北京" → `xhs_8d4e2f01`
+- 空 city → `xhs_global`
 
-```bash
-# 阿里云LLM DashScope 配置（必填）
-# 秘钥管理： https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29597918.J_SEsSjsNv72yRuRFS2VknO.2.61ac133ccTVQLw&tab=demohouse#/api-key
-DASHSCOPE_API_KEY=your-api-key （配置你自己的秘钥）
-DASHSCOPE_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1  # 不配置则默认会使用新加坡站点
+**前端关键交互：**
+
+- **KB 选择条**（输入框上方）：`absolute` 浮动，不占文档流；切换 RAG 模式时聊天区高度**不变**
+- **KB 抽屉**（右侧 420px）：搜索入库表单 + KB 列表（含两步确认删除）
+- **KB 卡片**：location pin SVG + city 名（15px/600）+ 笔记数/创建时间
+- **引用折叠条**：消息顶部 `<details>`，默认折叠，点开看 `[1] 标题 · 作者 · 8832 赞`
+- **会话连续性**：同 `session_id` 在 `/chat` 和 `/chat/rag` 间历史共享
+
+### 4.4 旅游多智能体规划（④）
+
+LangGraph 子图嵌套架构。6 Agent 协作：
+
+```
+ParserAgent → 解析"成都 3 日游 预算 3000"为结构化 trip
+   ↓
+   ├─→ AttractionAgent  (高德 POI 查景点)
+   ├─→ RouteAgent       (高德 driving 路线)
+   ├─→ HotelAgent       (携程 mock)
+   └─→ FoodAgent        (大众点评 mock)
+   ↓ ← 三路并行
+StrategyAgent → 综合 final_plan + structured_plan
+```
+
+`POST /api/travel/plan` SSE 流式，输出 6 Agent 中间事件 + 最终 `structured_plan`。
+
+### 4.5 AIOps 故障诊断（⑤）
+
+Plan-Execute-Replan 模式：
+
+```
+Planner → 4-6 步诊断计划
+Executor → 调 cls / monitor MCP
+Replanner → 评估 → 继续 / 调整 / 收尾
+→ 输出根因 + 运维建议（流式）
+```
+
+---
+
+## 五、API 接口
+
+完整端点见 http://localhost:9900/docs。核心一览：
+
+### 5.1 普通对话
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/chat` | 阻塞对话 |
+| POST | `/api/chat_stream` | SSE 流式 |
+| GET | `/api/chat/session/{session_id}` | 拿会话历史 |
+| POST | `/api/chat/clear` | 清空会话 |
+
+### 5.2 小红书 RAG
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/xhs/ingest/mcp` | 调 MCP 搜索 + 入 partition |
+| POST | `/api/xhs/ingest/text` | 手动粘贴笔记入库 |
+| GET | `/api/xhs/kb/list` | 列出所有 `xhs_*` 分区 |
+| DELETE | `/api/xhs/kb/{kb_name}` | 删除分区 |
+| GET | `/api/xhs/stats` | biz collection 总向量数 |
+| POST | `/api/chat/rag` | RAG 阻塞对话 |
+| POST | `/api/chat/rag_stream` | RAG 流式（含 citations） |
+
+### 5.3 `/api/chat/rag_stream` 请求体
+
+```jsonc
+{
+  "Question":   "成都必吃美食推荐",
+  "session_id": "u-001",
+  "kb_name":    "xhs_a3f9c1b2",   // 可选；空 → 跨所有 xhs_* 分区全局检索
+  "top_k":      3                  // 可选，默认 3
+}
+```
+
+### 5.4 SSE 事件协议
+
+```
+data: {"type":"citations","data":[{"title":"成都5日游","url":"...","author":"...","likes":8832}, ...]}
+
+data: {"type":"content","data":"根据小红书"}
+data: {"type":"content","data":"攻略，建议..."}
+...
+data: {"type":"done"}
+```
+
+异常：
+
+```
+data: {"type":"error","data":"知识库 'xhs_xxx' 不存在"}
+```
+
+### 5.5 旅游多智能体
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/travel/plan` | SSE 流式规划，6 Agent 中间事件 + final |
+| GET | `/api/travel/map-key` | 前端用的高德 JS API key |
+| POST | `/api/travel/share` | 生成攻略分享链接 |
+| GET | `/api/travel/share/{id}` | 查看分享攻略 |
+
+### 5.6 健康检查
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/health` | 主服务 + Milvus 连接状态 |
+
+---
+
+## 六、.env 配置
+
+新建 `.env` 在项目根目录，**最小必填仅 LLM key**。
+
+```ini
+# ── 应用 ─────────────────────────────────────────────
+APP_NAME=SuperBizAgent
+DEBUG=True
+HOST=0.0.0.0
+PORT=9900
+
+# ── LLM ─────────────────────────────────────────────
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_API_BASE=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+
+# DashScope 作 fallback；AIOps 用 qwen-max
+DASHSCOPE_API_KEY=
+DASHSCOPE_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
 DASHSCOPE_MODEL=qwen-max
 
-# Milvus 配置
+# ── Milvus 向量库 ───────────────────────────────────
 MILVUS_HOST=localhost
 MILVUS_PORT=19530
+MILVUS_TIMEOUT=10000
 
-# RAG 配置
+# ── RAG ─────────────────────────────────────────────
 RAG_TOP_K=3
 CHUNK_MAX_SIZE=800
 CHUNK_OVERLAP=100
 
-# 小红书 MCP / RAG
+# ── 小红书 MCP / RAG（功能 ③）──────────────────────
 MCP_XHS_URL=http://localhost:8013/mcp
-# XHS_COOKIE 不填则走 Mock 数据（推荐先用 Mock 跑通流程）
+# Playwright 浏览器 cookie（浏览器 F12 复制 xiaohongshu.com 的 Cookie 整行）
+# 不填 → headless chromium 未登录访问，可能拿不到结果
 XHS_COOKIE=
+
+# ── 旅游 Agent MCP（功能 ④）─────────────────────────
+MCP_GAODE_URL=http://localhost:8010/mcp
+MCP_CTRIP_URL=http://localhost:8011/mcp
+MCP_DIANPING_URL=http://localhost:8012/mcp
+GAODE_API_KEY=                # https://lbs.amap.com（Web 服务）
+AMAP_JS_KEY=                  # 前端地图（Web JS API）
+AMAP_JS_SECURITY_CODE=
+
+# ── AIOps MCP（功能 ⑤）─────────────────────────────
+MCP_CLS_URL=http://localhost:8003/mcp
+MCP_MONITOR_URL=http://localhost:8004/mcp
+
+# ── 分享链接 ────────────────────────────────────────
+SHARE_DB_URL=sqlite:///data/shares.db
 ```
 
-## 🎯 AIOps 智能运维
+---
 
-基于 **Plan-Execute-Replan** 模式实现自动故障诊断。
+## 七、测试用例
 
-### 核心特性
-- ✅ 自动制定诊断计划（Planner）
-- ✅ 智能工具调用（Executor）
-- ✅ 动态调整步骤（Replanner）
-- ✅ 流式输出诊断过程
-- ✅ 生成结构化报告
-
-### 快速测试
-
-```bash
-# 服务已通过 make init 自动启动
-# 如需重启服务：make restart
-
-# 访问 Web 界面，点击"智能运维与诊断工具"
-# 或使用 API
-curl -X POST "http://localhost:9900/api/aiops" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"test"}' \
-  --no-buffer
-```
-
-### 诊断流程
-```
-1. Planner 制定计划 → 生成 4-6 个诊断步骤
-2. Executor 执行步骤 → 调用 MCP 工具（日志查询、监控数据）
-3. Replanner 评估结果 → 决定继续/调整/生成报告
-4. 输出诊断报告 → 根因分析 + 运维建议
-```
-
-## 📝 开发指南
-
-### 常用命令
-
-```bash
-# 项目管理
-make init              # 一键初始化（Docker + 服务 + 文档）
-make start             # 启动所有服务
-make stop              # 停止所有服务
-make restart           # 重启所有服务
-
-# 依赖管理
-make install-dev       # 安装开发依赖
-make sync              # 同步依赖
-
-# Docker 管理
-make up                # 启动 Docker 容器
-make down              # 停止 Docker 容器
-
-# 代码质量
-make format            # 格式化代码
-make lint              # 代码检查
-```
-
-
-## 🐛 常见问题
-
-### Windows 环境问题
-
-#### 1. `make` 命令不可用
-Windows 不支持 `make` 命令，请使用提供的批处理脚本：
-```powershell
-# 启动服务
-.\start-windows.bat
-
-# 停止服务
-.\stop-windows.bat
-```
-
-#### 2. PowerShell 执行策略限制
-如果遇到 "无法加载文件，因为在此系统上禁止运行脚本" 错误：
-```powershell
-# 临时允许脚本执行（管理员权限）
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
-
-# 或者使用 CMD 而不是 PowerShell
-cmd
-.\start-windows.bat
-```
-
-#### 3. 端口被占用（Windows）
-```powershell
-# 查看占用端口的进程
-netstat -ano | findstr :9900
-
-# 结束进程（替换 PID 为实际进程 ID）
-taskkill /F /PID <PID>
-```
-
-### 通用问题
-
-### API Key 错误
-```bash
-# 检查环境变量
-cat .env | grep DASHSCOPE_API_KEY    # Linux/macOS
-type .env | findstr DASHSCOPE_API_KEY  # Windows
-```
-
-### Milvus 连接失败
-```bash
-# 确保本机有 Docker 服务并且已经启动（可以使用 Docker Desktop）
-
-# 检查 Milvus 状态
-docker ps | grep milvus
-
-# 重启 Milvus（使用 docker compose）
-docker compose -f vector-database.yml restart
-
-# 或者重启单个服务
-docker compose -f vector-database.yml restart standalone
-```
-
-### 服务无法启动
-
-**Linux/macOS:**
-```bash
-# 查看服务日志
-tail -f logs/app_$(date +%Y-%m-%d).log  # FastAPI 主服务（Loguru 日志）
-tail -f mcp_cls.log                      # CLS MCP 服务
-tail -f mcp_monitor.log                  # Monitor MCP 服务
-
-# 检查端口占用
-lsof -i :9900  # FastAPI
-lsof -i :8003  # CLS MCP
-lsof -i :8004  # Monitor MCP
-```
-
-**Windows:**
-```powershell
-# 查看服务日志（获取今天的日期）
-$today = Get-Date -Format "yyyy-MM-dd"
-type logs\app_$today.log  # FastAPI 主服务（Loguru 日志）
-type mcp_cls.log          # CLS MCP 服务
-type mcp_monitor.log      # Monitor MCP 服务
-
-# 或者查看最新的日志文件
-Get-ChildItem logs\*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content -Tail 50
-
-# 检查端口占用
-netstat -ano | findstr :9900  # FastAPI
-netstat -ano | findstr :8003  # CLS MCP
-netstat -ano | findstr :8004  # Monitor MCP
-```
-
-## 📚 参考资源
-
-- [FastAPI 文档](https://fastapi.tiangolo.com/)
-- [LangChain 文档](https://python.langchain.com/)
-- [LangGraph Plan-Execute](https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/)
-- [阿里云 DashScope](https://dashscope.aliyun.com/)
-- [MCP 协议](https://modelcontextprotocol.io/)
-
-## 📕 小红书 RAG（动态知识库）
-
-把小红书旅游攻略**按需**抓进 Milvus，每次搜索建一个独立分区（KB），聊天时**手动**指定 `kb_name` 让 LLM 基于该分区检索作答。
-
-### 设计要点
-
-- **Milvus 原生 Partition 隔离**：每次入库一个 `xhs_<md5前8>_<时间戳>` 分区，互不污染
-- **手动开关**：原 `/api/chat` 不变；走 RAG 必须用 `/api/chat/rag` 或 `/api/chat/rag_stream`，且**必填 `kb_name`**
-- **Mock 模式**：不配 `XHS_COOKIE` 时 MCP 返回内置 mock 笔记（成都/北京/深圳），可直接跑通整条链路
-- **会话共享**：同一 `session_id` 在 `/chat` 与 `/chat/rag` 间历史是连续的
-
-### 启动流程（Windows / PowerShell）
-
-按顺序开 3 个 PowerShell 窗口，**每个窗口都要先激活 venv**（`.venv\Scripts\activate`）。
+### 7.1 跑测试
 
 ```powershell
-# 窗口 1 — Milvus（已通过 docker compose 起好则跳过）
-docker compose -f vector-database.yml up -d
+.venv\Scripts\activate
 
-# 窗口 2 — 小红书 MCP Server（端口 8013）
-python mcp_servers/xhs_server.py
-# 看到 "Uvicorn running on http://0.0.0.0:8013" 即成功
+# 全量单元测试（不需要 Milvus / MCP，全 mock）
+python -m pytest tests/ -v --no-cov
+# → 77 passed, 4 skipped
 
-# 窗口 3 — FastAPI 主服务（端口 9900）
-python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
-# 看到 collection 'biz' 已加载 即成功
+# Milvus 集成测试（需 Milvus 跑着）
+$env:RUN_MILVUS_TESTS="1"
+python -m pytest tests/services/test_vector_store_partition_integration.py -v --no-cov
+# → 4 passed
 ```
 
-启动好后访问 http://localhost:9900/docs，在 **"小红书 RAG"** 与 **"RAG 对话"** 两个 tag 下能看到全部新接口。
+### 7.2 测试覆盖矩阵（共 81 个测试）
 
-### 端到端冒烟测试（curl）
+| 测试文件 | 数量 | 覆盖点 |
+|---|---|---|
+| `tests/services/test_session_store.py` | 5 | 跨 endpoint 共享会话：get/append/clear 隔离 |
+| `tests/services/test_vector_store_manager_partition.py` | 9 | Milvus partition CRUD（mock collection） |
+| `tests/services/test_xhs_ingestion_service.py` | 7 | `_make_kb_name` 确定性、0 笔记不创建分区 |
+| `tests/services/test_rag_service.py` | 4 | citations 去重、空命中 fallback、history 截 20、KB 不存在 |
+| `tests/api/test_xhs_api.py` | 6 | ingest_mcp 返 kb_name、list、delete 404 |
+| `tests/api/test_chat_rag_api.py` | 5 | RAG happy path、KB 不存在、SSE 事件顺序 |
+| `tests/api/test_travel.py` | 7 | 旅游 SSE 端到端、structured_plan 字段 |
+| `tests/db/test_share_store.py` | 3 | SQLite 攻略分享 |
+| `tests/agent/travel/*` | 31 | 6 Agent 测试 + state + geo_utils + parser |
+| `tests/services/test_vector_store_partition_integration.py` | 4 | Milvus 真集成（默认 skip） |
+| **总计** | **81** | **77 单元 + 4 集成** |
 
-```powershell
-# 1. 用 MCP 搜索"成都美食"，自动建分区并入库
-curl.exe -X POST http://localhost:9900/api/xhs/ingest/mcp `
-  -H "Content-Type: application/json" `
-  -d '{\"keyword\":\"美食\",\"city\":\"成都\",\"count\":5}'
-# 返回里记下 data.kb_name —— 后面要用
+### 7.3 关键测试场景
 
-# 2. 看看现在有哪些知识库
-curl.exe http://localhost:9900/api/xhs/kb/list
+**SSE 事件顺序**（`test_chat_rag_stream_emits_citations_then_content_then_done`）：
 
-# 3. 用上一步的 kb_name 做 RAG 对话
-curl.exe -X POST http://localhost:9900/api/chat/rag `
-  -H "Content-Type: application/json" `
-  -d '{\"Question\":\"成都必吃美食推荐\",\"session_id\":\"smoke-1\",\"kb_name\":\"<填这里>\"}'
-# 返回的 answer 应该出现"郫县豆瓣鱼/夫妻肺片"等 mock 数据里的内容
-# 同时 citations 字段会带笔记 title/url/author/likes
+- 第一个事件**必须**是 `citations`
+- 然后是若干 `content`
+- 最后 `done`
 
-# 4. SSE 流式版（看实时打字效果）
-curl.exe -N -X POST http://localhost:9900/api/chat/rag_stream `
-  -H "Content-Type: application/json" `
-  -d '{\"Question\":\"成都3日游怎么安排\",\"session_id\":\"smoke-2\",\"kb_name\":\"<填这里>\"}'
+**citations 去重**（`test_build_rag_context_hits_nonempty`）：
 
-# 5. 不再需要时删掉知识库
-curl.exe -X DELETE http://localhost:9900/api/xhs/kb/<填 kb_name>
+- 3 个 docs，其中 2 个 `note_id="n1"`
+- 期望 citations 只保留 2 条（按 note_id 去重）
+
+**Milvus 跨 partition 隔离**（集成测试 `test_partition_isolation`）：
+
+- 创建 KB_A 写"cheese pizza"
+- 创建 KB_B 写"green tea"
+- 查 KB_A "pizza" → 必须命中
+- 查 KB_B "pizza" → 必须**不**命中
+
+---
+
+## 八、项目演进过程
+
+完整 commit 历史按时间分阶段：
+
+### Phase 1 ── 2026-05-12: 项目基线（AIOps）
+
+- 项目原型：基于 **Plan-Execute-Replan** 的故障诊断系统
+- CLS / Monitor MCP server
+- DashScope 通义 + Milvus + LangChain
+
+### Phase 2 ── 2026-05-13: 转向旅游 Agent
+
+`5cc62a4 → b1c062e`（约 50 commit）
+
+- **6 个旅游 Agent** 全部上线：Parser / Attraction / Route / Hotel / Food / Strategy
+- **LangGraph 三阶段**：Parser → (Attraction / Route / Hotel / Food 并行) → Strategy
+- **MCP server**：高德地图（POI / 路线）/ 携程 mock / 大众点评 / 美团 scaffold
+- 主流程编排（`travel_service.plan`）+ SSE 流式 API
+- 前端**旅游工作台**：两栏布局（左表单 + 右地图）、攻略卡片、分享链接（SQLite + SQLAlchemy）
+- 高德 JS API 集成：景点 marker、路线 polyline、按 day 高亮
+- 多版本 UX 迭代：
+  - **v1.2.4** 食物表格 + 自定义 SVG marker
+  - **v1.2.5** 智能路线规划（步行/骑行/地铁/打车）+ 天气小组件
+  - **v1.2.6** 坐标稳定性修复（后端 Gaode REST + 前端 fallback）
+- 移除 AIOps 主线（代码保留，路由不挂载）
+- LLM 切到 **DeepSeek V4 Pro**（移除 ChatQwen 依赖）
+
+### Phase 3 ── 2026-05-14: 小红书 RAG 后端
+
+`03846d8 → eb9bde8`（17 commit）
+
+- 写 spec `docs/superpowers/specs/2026-05-14-xhs-rag-dynamic-kb-design.md`
+- 写 plan `docs/superpowers/plans/2026-05-14-xhs-rag-dynamic-kb.md`（11 个 TDD task）
+- **Inline Execution** 模式执行：
+  - Task 1：`session_store` 抽离（chat.py 重构）
+  - Task 2-3：`VectorStoreManager` 加 5 个 partition 方法（ensure/list/drop/insert/search）
+  - Task 4：`xhs_ingestion_service` 自动生成 kb_name、走 partition
+  - Task 5：`/api/xhs/*` 加 list/delete + kb_name 校验
+  - Task 6：`rag_service.build_rag_context` 含 citations 去重、空命中 fallback
+  - Task 7-8：`/api/chat/rag` 阻塞 + `/api/chat/rag_stream` SSE 流式
+  - Task 9：`main.py` 注册路由
+  - Task 10：Milvus 集成测试（4 个）
+- **77 单元测试全过**
+
+### Phase 4 ── 2026-05-14~15: 小红书 RAG 前端
+
+`034ebdc → 3d4475b`（11 commit）
+
+- 前端 spec + plan
+- **Subagent-Driven Development** 模式执行 9 个 task，每 task 三阶段 review：
+  1. HTML 骨架（dropdown / KB bar / drawer）
+  2. CSS 一次性加完（220+ 行）
+  3. JS 状态 + DOM 缓存 + RAG 子模式钩入
+  4. `fetchKbList` / `renderKbList` / `selectKb`
+  5. 抽屉开关 + 事件绑定
+  6. 删除 + 两步确认
+  7. 搜索入库（MCP）
+  8. `sendMessage` RAG 分支 + `sendRagStream` SSE + citations 渲染
+- 22 项端到端浏览器手测清单
+
+### Phase 5 ── 2026-05-15: 兼容性与替换（实战修复）
+
+| Commit | 问题 → 解决 |
+|---|---|
+| `f734e4d` | **fastmcp 升级 API 变了**：`client.call_tool()` 返回 `CallToolResult` dataclass（不再 list[TextContent]）→ 改用 `.data` 属性 |
+| `1a7fb8d` | **DashScope embedding 账户欠费** → 切到本地 `BAAI/bge-small-zh-v1.5`（sentence-transformers），维度 1024→512，Milvus collection 自动重建 |
+| `6660e52` | **XHS 内部 API 需 X-S 签名逆向**（脆弱）→ 改用 **Playwright headless chromium** 解析 search_result 页面 DOM，避开签名 |
+
+### Phase 6 ── 2026-05-15: v2 体验优化
+
+| Commit | 改动 |
+|---|---|
+| `cdcf834` | **按 city 分库**：同 city 多次入库追加到同一 partition；不选 KB → 跨所有 `xhs_*` 分区全局检索；前端 KB bar 紧凑居中、加「🌐 全部知识库」默认项 |
+| `77010c5` | KB 卡片**强调 city 名**（15px/600 + location pin SVG 圆形 tile）；emoji 🗑 → trash SVG；删除按钮 focus-visible 红色 outline |
+| `5cb532a` | 修两个 bug：① 全局检索 422（前端 `kb_name: null` → 后端 pydantic 拒绝；改 `Optional[str]` + 前端 fallback）② KB 显示「(未命名)」（Milvus partition.description 不持久化 → list 接口回退 query 一条样本的 `metadata.city`） |
+| `23804d2` | KB bar 改 **`position: absolute`** 浮动定位，不再挤压聊天区高度 |
+
+### Phase 7 ── 2026-05-15: 文档
+
+- `FULL_README.md` — 5 条链路通用启动指南
+- `README_Final.md` — 单文件完整对外文档
+- 本文件 `README.md` — **加入"项目演进过程"章节**
+
+---
+
+## 九、系统架构
+
+### 9.1 目录结构
+
+```
+super_biz_agent/
+├── app/
+│   ├── main.py                          # FastAPI 入口
+│   ├── config.py                        # pydantic-settings 配置
+│   ├── api/
+│   │   ├── chat.py                      # ① 普通对话
+│   │   ├── chat_rag.py                  # ③ XHS RAG 对话
+│   │   ├── xhs.py                       # ③ XHS KB 管理
+│   │   ├── travel.py                    # ④ 旅游 Agent
+│   │   ├── aiops.py                     # ⑤ AIOps
+│   │   ├── file.py                      # ② 文件上传
+│   │   └── health.py
+│   ├── agent/
+│   │   ├── travel/                      # 6 个旅游 Agent
+│   │   ├── aiops/                       # Plan-Execute-Replan
+│   │   └── mcp_client.py
+│   ├── services/
+│   │   ├── rag_service.py               # build_rag_context
+│   │   ├── session_store.py             # 共享会话
+│   │   ├── vector_store_manager.py      # Milvus + partition 方法
+│   │   ├── vector_embedding_service.py  # 本地 bge embedding
+│   │   ├── xhs_ingestion_service.py     # XHS 入库管道
+│   │   └── travel_service.py            # 旅游 Agent 编排
+│   ├── core/
+│   │   ├── llm_factory.py               # DeepSeek/DashScope 工厂
+│   │   └── milvus_client.py             # biz collection (512 维)
+│   └── ...
+├── mcp_servers/
+│   ├── xhs_server.py                    # 端口 8013 Playwright
+│   ├── gaode_maps.py                    # 端口 8010
+│   ├── ctrip.py                         # 端口 8011 mock
+│   ├── dianping.py                      # 端口 8012 mock
+│   ├── cls_server.py                    # 端口 8003 mock
+│   └── monitor_server.py                # 端口 8004 mock
+├── static/
+│   ├── index.html                       # 单页前端
+│   ├── app.js                           # 主应用 + TravelUI + XHS RAG
+│   └── styles.css                       # 所有样式
+├── tests/                               # 81 个测试
+├── docs/
+│   └── superpowers/
+│       ├── specs/                       # 设计文档
+│       └── plans/                       # 实施计划
+├── vector-database.yml                  # Milvus docker-compose
+├── pyproject.toml                       # 依赖（uv）
+├── .env                                 # 配置（自建）
+├── README.md                            # 👉 本文档
+├── README_Final.md                      # 早期完整版（同内容备份）
+└── FULL_README.md                       # 5 链路通用启动手册
 ```
 
-### kb_name 规则
+### 9.2 XHS RAG 模块依赖
 
-- 自动生成：`xhs_<md5(keyword|city)前8位>_<YYYYMMDD>_<HHMMSS>`
-- 手动入库 `/xhs/ingest/text` 可传自定义 `kb_name`，**必须**匹配 `^xhs_[a-zA-Z0-9_]{1,240}$`，否则 400
-- 不传则默认 `xhs_manual_<时间戳>`
+```
+                      前端 (static/app.js)
+                          │
+                          ▼ HTTP / SSE
+              ┌──────────────────────────────┐
+              │  FastAPI 主服务 (uvicorn)    │
+              └──────────────────────────────┘
+                          │
+        ┌─────────────────┼──────────────────────┐
+        ▼                 ▼                      ▼
+   app/api/xhs.py    app/api/chat_rag.py    app/api/chat.py
+        │                 │                      │
+        ▼                 ▼                      ▼
+ xhs_ingestion   rag_service.py            session_store
+        │              │
+        │              ▼
+        │       vector_store_manager.py ─→ pymilvus ─→ Milvus
+        │              │
+        │              └→ vector_embedding_service.py
+        │                            │
+        │                  sentence-transformers
+        │                  (本地 BAAI/bge-small-zh-v1.5)
+        │
+        ▼ fastmcp Client
+   ┌────────────────────────────┐
+   │ xhs_server.py (独立进程)   │
+   │ 端口 8013                  │
+   │ Playwright headless        │
+   │ chromium → DOM 解析        │
+   └────────────────────────────┘
+```
 
-### 切换到真实抓取
+---
 
-默认是 Mock 模式，足够把流程跑通。要切真实抓取：
+## 十、故障排查
 
-1. 浏览器登录 https://www.xiaohongshu.com ，打开开发者工具复制完整 Cookie
-2. 把 Cookie 写入 `.env` 的 `XHS_COOKIE=...`
-3. 重启窗口 2（`xhs_server.py`）
-4. 之后调 `/xhs/ingest/mcp` 时 response 的 `source` 字段会是 `"realtime"` 而非 `"mock"`
-
-> ⚠️ 小红书有反爬，Cookie 可能几小时就失效；接口风格也可能变。Mock 模式始终可用。
-
-### 故障排查
+### 10.1 启动期
 
 | 症状 | 原因 / 处理 |
 |---|---|
-| `/xhs/ingest/mcp` 返回 `MCP 连接失败` | 窗口 2 没起，或端口 8013 被占 |
-| `/chat/rag` 返 404 | `kb_name` 不存在 —— 先调 `/xhs/kb/list` 看真实分区名 |
-| `/chat/rag` 返 400 `kb_name 必填` | 请求体里漏了 `kb_name` 字段 |
-| LLM 输出"以下为通用建议" | 该分区没检索到相关内容，是设计预期（不报错） |
-| 真实模式下没结果 | XHS_COOKIE 过期或被风控，回到 Mock 模式调试 |
+| `Fail connecting to server on localhost:19530` | Milvus 没起：`docker ps`；`docker compose -f vector-database.yml up -d` |
+| `RuntimeError: 向量维度不匹配` | 旧 collection 维度不是 512 → 自动 drop 重建，等几秒 |
+| 启动慢（30s+ 才打印 Embeddings 初始化完成） | 首次 sentence-transformers 在下模型（~100MB） |
+| `playwright._impl._errors.Error: Executable doesn't exist` | chromium 没装：`playwright install chromium` |
 
-### 自动化测试
+### 10.2 入库期（`/api/xhs/ingest/mcp`）
+
+| 症状 | 原因 / 处理 |
+|---|---|
+| `{"code":500,"message":"MCP 连接失败: ..."}` | 窗口 2 的 `xhs_server.py` 没起 |
+| `{"code":200,"data":{"kb_name":null,"ingested":0}}` | Playwright 抓到了页面但没解析出笔记 → 看 `mcp_servers/xhs_debug.png` 与 `xhs_debug.html` |
+| 入库非常慢（> 30s） | Playwright 冷启 chromium ~3s + XHS 加载 + 解析 |
+| Cookie 失效 | 重新从浏览器 F12 拿 cookie，更新 `.env` 的 `XHS_COOKIE`，**重启窗口 2** |
+
+### 10.3 对话期
+
+| 症状 | 原因 / 处理 |
+|---|---|
+| "以下为通用建议..." | 该 query 没命中 KB 任何 chunk → 设计行为，不是错 |
+| 红字"知识库 'xxx' 不存在" | 该 KB 被删了；先 `GET /api/xhs/kb/list` |
+| 红字"网络错误" | 主服务挂了 |
+| KB 显示"(未命名)" | Milvus partition.description 不持久化 → v2 已加 metadata.city 回退；如果还显示需要检查 list 接口日志 |
+| 选「全部知识库」提问无响应 | v2 已修：前端 fallback `|| ''` + 后端 `Optional[str]` |
+
+### 10.4 前端
+
+| 症状 | 排查 |
+|---|---|
+| 切到 RAG 子模式后 KB bar 不出现 | F12 → Console 看 JS 错；Ctrl-F5 强刷拿新 JS |
+| KB bar 出现/隐藏时聊天区"跳"一下 | v2 已修：KB bar 改 `position: absolute` 不占文档流 |
+| 抽屉打开是空的 | F12 → Network 看 `/api/xhs/kb/list` 返回什么 |
+
+### 10.5 Windows 进程清理
+
+PowerShell 关窗口有时不会 SIGINT 子进程，残留 Python 进程会占用 numpy / chromium DLL：
 
 ```powershell
-# 全量单元测试（不需要 Milvus）
-python -m pytest tests/ -v --no-cov
-
-# Milvus 集成测试（需要 Milvus 在 19530 跑着）
-$env:RUN_MILVUS_TESTS="1"; python -m pytest tests/services/test_vector_store_partition_integration.py -v --no-cov
+Get-Process python -ErrorAction SilentlyContinue | Format-Table Id,StartTime -AutoSize
+Stop-Process -Id <PID> -Force
 ```
 
-## 📄 许可证
-author： chief
+---
+
+## 十一、已知限制与后续方向
+
+### 11.1 已知限制
+
+| 类别 | 描述 |
+|---|---|
+| XHS 笔记内容 | 列表页只拿到 title 当 content；详情页正文未抓（每条 +5-10s 未做） |
+| XHS 反爬 | Cookie 仍可能被风控；Playwright 不能过验证码 |
+| Chromium 资源 | xhs_server 进程内常驻 chromium（~200MB 内存） |
+| Embedding 多语言 | bge-small-zh 中文专用；英文/日文 query 质量下降 |
+| Milvus 单机 | docker-compose 是 standalone；KB > 100 个时考虑分布式 |
+| 前端测试 | 没有 Jest/Vitest，靠手工 22 项 smoke test |
+| localStorage 跨 tab | 多 tab 删除 KB 不会主动通知其他 tab |
+
+### 11.2 后续可做
+
+1. **进详情页抓正文**：让笔记内容长一些，RAG 引用质量大幅提升
+2. **多语言 embedding**：换 `BAAI/bge-m3`（多语言，~1.2GB）
+3. **跨 tab 实时同步**：用 `storage` 事件或 SSE 推送 KB 列表变更
+4. **citations 侧栏预览**：点 citation 在右侧侧栏显示原文 + 图
+5. **A/B 评估面板**：对比"开/关 RAG"两种回答
+6. **Milvus 索引优化**：当前 IVF_FLAT/L2，可换 HNSW 提速
+
+---
+
+## 许可证
 
 MIT License
+
+Author: chief
