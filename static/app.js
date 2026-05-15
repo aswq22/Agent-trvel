@@ -928,6 +928,23 @@ class SuperBizAgentApp {
 
     // ─── XHS RAG ────────────────────────────────────────────────────────────
 
+    /**
+     * 从 partition description 提取干净的城市名。
+     * - v2 格式：description = "成都"           → "成都"
+     * - v1 格式：description = "美食|济南"      → "济南"（取最后一段）
+     * - 特殊值："全部地区" / "手动入库"          → 原样返回
+     * - 空：fallback "(未命名)"
+     */
+    extractCityFromKbDescription(desc) {
+        if (!desc || !desc.trim()) return '(未命名)';
+        const trimmed = desc.trim();
+        if (trimmed.includes('|')) {
+            const parts = trimmed.split('|').map(s => s.trim()).filter(Boolean);
+            return parts[parts.length - 1] || trimmed;
+        }
+        return trimmed;
+    }
+
     refreshKbBarLabel() {
         if (!this.kbBarSelectedName) return;
         if (!this.kb.selectedName) {
@@ -935,9 +952,9 @@ class SuperBizAgentApp {
             this.kbBarSelectedName.title = '未选择具体知识库时，跨所有 xhs 分区检索';
         } else {
             const item = this.kb.list.find(x => x.kb_name === this.kb.selectedName);
-            const label = (item && item.description) || '(未命名)';
-            this.kbBarSelectedName.textContent = label;
-            this.kbBarSelectedName.title = this.kb.selectedName;
+            const city = this.extractCityFromKbDescription(item && item.description);
+            this.kbBarSelectedName.textContent = `📍 ${city}`;
+            this.kbBarSelectedName.title = `${this.kb.selectedName}（${(item && item.description) || ''}）`;
         }
         if (this.kbBar) this.kbBar.classList.remove('warn');
     }
@@ -969,15 +986,21 @@ class SuperBizAgentApp {
         if (!this.kbList) return;
         this.kbList.innerHTML = '';
 
-        // 列表顶部固定一项「🌐 全部知识库」，data-kb="" → selectKb(null) 走全局
+        // SVG 图标（Heroicons / Lucide 风格，统一 stroke-2）
+        const SVG_GLOBE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
+        const SVG_PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
+        const SVG_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>`;
+
+        // 列表顶部固定一项「全部知识库」，data-kb="" → selectKb(null) 走全局
         const allItem = document.createElement('div');
         const allActive = !this.kb.selectedName;
         allItem.className = 'kb-item kb-item-all' + (allActive ? ' active' : '');
         allItem.dataset.kb = '';
         allItem.innerHTML = `
             ${allActive ? '<span class="kb-item-active-mark"></span>' : ''}
+            <span class="kb-item-icon kb-item-icon-global">${SVG_GLOBE}</span>
             <div class="kb-item-main">
-                <div class="kb-item-name">🌐 全部知识库</div>
+                <div class="kb-item-city">全部知识库</div>
                 <div class="kb-item-meta">跨所有 xhs 分区检索（默认）</div>
             </div>
         `;
@@ -996,15 +1019,17 @@ class SuperBizAgentApp {
             const isActive = kb.kb_name === this.kb.selectedName;
             div.className = 'kb-item' + (isActive ? ' active' : '');
             div.dataset.kb = kb.kb_name;
-            const displayName = kb.description || '(未命名)';
+            const city = this.extractCityFromKbDescription(kb.description);
             const meta = `${kb.num_entities} 块 · ${kb.created_at || '—'}`;
+            const fullTitle = `${kb.kb_name}\ndescription: ${kb.description || ''}`;
             div.innerHTML = `
                 ${isActive ? '<span class="kb-item-active-mark"></span>' : ''}
+                <span class="kb-item-icon">${SVG_PIN}</span>
                 <div class="kb-item-main">
-                    <div class="kb-item-name" title="${this.escapeHtml(kb.kb_name)}">${this.escapeHtml(displayName)}</div>
+                    <div class="kb-item-city" title="${this.escapeHtml(fullTitle)}">${this.escapeHtml(city)}</div>
                     <div class="kb-item-meta">${this.escapeHtml(meta)}</div>
                 </div>
-                <button class="kb-item-delete" data-action="delete-prompt" title="删除" type="button">🗑</button>
+                <button class="kb-item-delete" data-action="delete-prompt" title="删除知识库" aria-label="删除知识库" type="button">${SVG_TRASH}</button>
             `;
             this.kbList.appendChild(div);
         }
