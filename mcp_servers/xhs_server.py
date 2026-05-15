@@ -95,44 +95,137 @@ def _mock_search(keyword: str, city: str, count: int) -> list[dict]:
     return results[:count] if results else _MOCK_NOTES[:count]
 
 
-# ── 真实抓取（需配置 XHS_COOKIE）───────────────────────────────────────────
+# ── 真实抓取：Playwright + DOM 解析（避开 X-S 签名逆向）─────────────────────
+#
+# 设计：进程启动时不立即拉起 chromium；首个真实 search 请求到达时懒加载，
+# 之后复用同一个 browser context（cookie + 状态保留，省 chromium 启动开销）。
+
+_pw_state: dict = {"playwright": None, "browser": None, "context": None}
+
+
+def _parse_cookie_str(s: str) -> list[dict]:
+    """把 'a=1; b=2; ...' 形式的 cookie 字符串拆成 Playwright add_cookies 需要的列表。"""
+    cookies: list[dict] = []
+    for kv in s.split(";"):
+        kv = kv.strip()
+        if "=" not in kv:
+            continue
+        name, _, value = kv.partition("=")
+        cookies.append({
+            "name": name.strip(),
+            "value": value.strip(),
+            "domain": ".xiaohongshu.com",
+            "path": "/",
+        })
+    return cookies
+
+
+async def _get_context():
+    """懒加载并复用同一个 chromium context。"""
+    if _pw_state["context"] is not None:
+        return _pw_state["context"]
+    from playwright.async_api import async_playwright
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(headless=True)
+    context = await browser.new_context(
+        user_agent=_HEADERS["User-Agent"],
+        locale="zh-CN",
+        viewport={"width": 1280, "height": 900},
+    )
+    if config.xhs_cookie:
+        await context.add_cookies(_parse_cookie_str(config.xhs_cookie))
+    _pw_state["playwright"] = pw
+    _pw_state["browser"] = browser
+    _pw_state["context"] = context
+    return context
+
 
 async def _real_search(keyword: str, city: str, count: int) -> list[dict]:
-    """调用小红书搜索接口（需要有效 Cookie）"""
-    headers = {**_HEADERS, "Cookie": config.xhs_cookie}
-    params = {
-        "keyword": f"{city} {keyword}".strip(),
-        "page": 1,
-        "page_size": min(count, 20),
-        "sort": "general",
-        "note_type": 0,
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes",
-            headers=headers,
-            params=params,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    """用 Playwright 打开 XHS 搜索结果页，解析 DOM 抽笔记列表。
 
-    notes = []
-    for item in data.get("data", {}).get("items", []):
-        note = item.get("note_card", {})
-        note_id = item.get("id", "")
-        title = note.get("title", "") or note.get("desc", "")[:50]
-        content = note.get("desc", "")
-        tag_list = [t.get("name", "") for t in note.get("tag_list", [])]
-        notes.append({
-            "note_id": note_id,
-            "title": title,
-            "content": content,
-            "tags": tag_list,
-            "city": city,
-            "author": note.get("user", {}).get("nickname", ""),
-            "url": f"https://www.xiaohongshu.com/explore/{note_id}",
-            "likes": note.get("interact_info", {}).get("liked_count", 0),
-        })
+    比逆向 X-S 签名简单很多，代价是每条请求 ~5-10s。
+    """
+    from urllib.parse import quote
+
+    ctx = await _get_context()
+    page = await ctx.new_page()
+    full_keyword = f"{city} {keyword}".strip()
+    url = f"https://www.xiaohongshu.com/search_result?keyword={quote(full_keyword)}&source=web_explore_feed"
+
+    notes: list[dict] = []
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        # 等笔记卡片渲染（XHS 用 section.note-item 或 a[href*='/explore/']）
+        try:
+            await page.wait_for_selector("a[href*='/explore/']", timeout=15000)
+        except Exception:
+            # 没等到 = 风控/未登录/无结果
+            html = await page.content()
+            if "登录" in html or "验证" in html:
+                raise RuntimeError("XHS 要求登录或显示验证码 — 请刷新 cookie")
+            return []
+
+        # 给懒加载几百毫秒
+        await page.wait_for_timeout(800)
+
+        # 抓所有指向笔记详情的链接
+        anchors = await page.locator("a[href*='/explore/']").all()
+        seen_ids: set[str] = set()
+        for a in anchors:
+            if len(notes) >= count:
+                break
+            href = await a.get_attribute("href")
+            if not href:
+                continue
+            # 形如 /explore/64abcde123456789?xsec_token=...
+            note_id = href.split("/explore/")[-1].split("?")[0].strip()
+            if not note_id or note_id in seen_ids:
+                continue
+            # title: 链接的 title 属性 / 内部文本 / 父节点文本
+            title = (await a.get_attribute("title")) or ""
+            if not title:
+                title = (await a.text_content() or "").strip()
+            # author / likes 从卡片附近抽（XHS 的卡片结构 = section.note-item 包 a + 作者 + 互动信息）
+            try:
+                card = a.locator("xpath=ancestor::section[1]")
+                author = ""
+                try:
+                    author_el = card.locator(".author").first
+                    author = (await author_el.text_content() or "").strip()
+                except Exception:
+                    pass
+                likes = 0
+                try:
+                    likes_text = (await card.locator(".count").first.text_content() or "").strip()
+                    # XHS 显示如 '1.2万'、'234'，做近似解析
+                    if "万" in likes_text:
+                        likes = int(float(likes_text.replace("万", "")) * 10000)
+                    elif likes_text.isdigit():
+                        likes = int(likes_text)
+                except Exception:
+                    pass
+            except Exception:
+                author = ""
+                likes = 0
+
+            if not title:
+                continue  # 没标题的卡片跳过
+
+            seen_ids.add(note_id)
+            notes.append({
+                "note_id": note_id,
+                "title": title[:80],
+                # content：列表页拿不到完整正文，先用 title 占位；下一步可进详情页拉
+                "content": title,
+                "tags": [city] if city else [],
+                "city": city,
+                "author": author,
+                "url": f"https://www.xiaohongshu.com{href.split('?')[0]}",
+                "likes": likes,
+            })
+    finally:
+        await page.close()
+
     return notes
 
 
