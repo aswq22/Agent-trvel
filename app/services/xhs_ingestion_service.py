@@ -50,17 +50,30 @@ def _note_to_docs(note: dict) -> List[Document]:
 
 
 async def _fetch_notes_from_mcp(keyword: str, city: str, count: int) -> List[dict]:
-    """通过 XHS MCP 搜索笔记"""
+    """通过 XHS MCP 搜索笔记。
+
+    fastmcp >=2 的 call_tool 返回 CallToolResult（dataclass），含 .data /
+    .content / .is_error。优先用 .data（已自动反序列化）；老版本 fallback
+    走 .content[0].text 解析。
+    """
     from fastmcp import Client
+    import json
 
     async with Client(config.mcp_xhs_url) as client:
         result = await client.call_tool(
             "xhs_search_notes",
             {"keyword": keyword, "city": city, "count": count},
         )
-    import json
-    raw = result[0].text if result else "{}"
-    data = json.loads(raw)
+
+    # 新 API：result.data 已是 dict
+    data = getattr(result, "data", None)
+    if data is None:
+        # 退而求其次：从 content 文本块解析 JSON
+        content = getattr(result, "content", None) or result
+        if content:
+            data = json.loads(content[0].text)
+        else:
+            data = {}
     return data.get("notes", [])
 
 
