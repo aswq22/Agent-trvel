@@ -2227,14 +2227,22 @@ body {
 
 /* ── KB Bar（输入框上方） ─────────────────────────────────────────── */
 .kb-bar {
+    /* 浮在 .chat-input-container 上方（不占文档流，切换时聊天区高度不变）*/
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    z-index: 5;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+
     display: none;
     align-items: center;
     justify-content: center;
     gap: 8px;
     padding: 6px 14px;
-    margin: 0 auto 8px;
     width: fit-content;
-    max-width: 760px;
+    max-width: 90vw;
     background: #fef7e6;
     border: 1px solid #fce7b8;
     border-radius: 10px;
