@@ -117,20 +117,37 @@ playwright install chromium
 
 > **首次启动会从 HuggingFace 自动下载 `BAAI/bge-small-zh-v1.5` 模型（~100MB）到 `~/.cache/huggingface/`，仅一次。**
 
-### 3.3 三窗口最小启动（演示小红书 RAG）
+### 3.3 MCP 端口对照表
 
-按顺序开 3 个 PowerShell 窗口，每个都先 `.venv\Scripts\activate`：
+> ⚠ **Milvus 是所有功能的硬依赖**（主服务启动时会触发 `vector_store_manager` 模块加载并连 Milvus）。即便你只想用旅游 Agent，也要先起 Milvus。
+
+不同功能链路需要起不同的 MCP server。**只起你要用的那条链路对应的 MCP 即可**——多余的 MCP 不起也不影响主服务运行。
+
+| 链路 | 必需 MCP | 端口 | 对应 `.env` 变量 | 备注 |
+|---|---|---|---|---|
+| ① 普通对话 | 无 | - | - | 只要主服务 + LLM key |
+| ② 文件 RAG | 无 | - | - | 主服务 + Milvus |
+| ③ **小红书 RAG** | `xhs_server` | 8013 | `MCP_XHS_URL` | 内置 Playwright，~200MB 内存 |
+| ④ **旅游 Agent** | `gaode_maps` | 8010 | `MCP_GAODE_URL` | 需 `GAODE_API_KEY` |
+|   | `ctrip` | 8011 | `MCP_CTRIP_URL` | Mock 酒店数据 |
+|   | `dianping` | 8012 | `MCP_DIANPING_URL` | Mock 餐饮/景点 |
+| ⑤ AIOps | `cls_server` | 8003 | `MCP_CLS_URL` | Mock 日志 |
+|   | `monitor_server` | 8004 | `MCP_MONITOR_URL` | Mock 监控 |
+
+下面给三个**启动配方**，按需挑。
+
+### 3.4 配方 A —— 只跑小红书 RAG（3 窗口）
 
 ```powershell
-# 窗口 1 — Milvus 向量数据库
+# 窗口 1 — Milvus
 docker compose -f vector-database.yml up -d
-# 等 10s 看到 milvus-standalone: Up
 
-# 窗口 2 — 小红书 MCP（端口 8013）
+# 窗口 2 — 小红书 MCP（端口 8013）—— ③ 链路必需
+.venv\Scripts\activate
 python mcp_servers/xhs_server.py
-# 看到 "Uvicorn running on http://0.0.0.0:8013" 即就绪
 
 # 窗口 3 — FastAPI 主服务（端口 9900）
+.venv\Scripts\activate
 python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
 ```
 
@@ -145,7 +162,70 @@ SuperBizAgent v1.0.0 启动中...
 collection 'biz' 已加载
 ```
 
-### 3.4 端到端冒烟测试
+### 3.5 配方 B —— 跑旅游 Agent（5 窗口）
+
+需要 3 个 MCP（高德 + 携程 + 大众点评）+ Milvus + 主服务。
+
+```powershell
+# 窗口 1 — Milvus
+docker compose -f vector-database.yml up -d
+
+# 窗口 2 — 高德地图 MCP（端口 8010）—— 必需，需 GAODE_API_KEY
+.venv\Scripts\activate
+python mcp_servers/gaode_maps.py
+
+# 窗口 3 — 携程 MCP（端口 8011, mock 数据）
+.venv\Scripts\activate
+python mcp_servers/ctrip.py
+
+# 窗口 4 — 大众点评 MCP（端口 8012, mock 数据）
+.venv\Scripts\activate
+python mcp_servers/dianping.py
+
+# 窗口 5 — FastAPI 主服务
+.venv\Scripts\activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
+```
+
+> 高德 `GAODE_API_KEY` 没配时：景点/餐厅/酒店会**降级为成都 Mock 数据**——旅游 Agent 仍能跑通，只是数据是预置的。
+>
+> 同理可加 `AMAP_JS_KEY` + `AMAP_JS_SECURITY_CODE` 让前端旅游工作台的地图渲染出来。
+
+### 3.6 配方 C —— 全开（8 窗口）
+
+跑所有 5 条功能链路。
+
+```powershell
+# 窗口 1 — Milvus
+docker compose -f vector-database.yml up -d
+
+# 窗口 2 — 小红书 MCP（端口 8013）
+.venv\Scripts\activate
+python mcp_servers/xhs_server.py
+
+# 窗口 3-5 — 旅游 Agent 三个 MCP
+.venv\Scripts\activate
+python mcp_servers/gaode_maps.py      # 8010
+
+.venv\Scripts\activate
+python mcp_servers/ctrip.py           # 8011
+
+.venv\Scripts\activate
+python mcp_servers/dianping.py        # 8012
+
+# 窗口 6-7 — AIOps 两个 MCP
+.venv\Scripts\activate
+python mcp_servers/cls_server.py      # 8003
+
+.venv\Scripts\activate
+python mcp_servers/monitor_server.py  # 8004
+
+# 窗口 8 — FastAPI 主服务
+.venv\Scripts\activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
+```
+
+### 3.7 端到端冒烟测试
 
 新开第 4 个 PowerShell 窗口（curl 是 Windows 自带的，不用激活 venv）：
 
