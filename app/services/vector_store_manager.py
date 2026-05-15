@@ -168,16 +168,39 @@ class VectorStoreManager:
         logger.info(f"创建 partition '{kb_name}', description='{description}'")
 
     def list_kb_partitions(self) -> List[dict]:
-        """列出所有 xhs_ 前缀的 partition。"""
+        """列出所有 xhs_ 前缀的 partition。
+
+        Milvus 的 partition.description 在多个版本里不持久化（创建时设了、
+        读回来却是空字符串）。这里做 metadata 回退：description 为空且
+        partition 非空时，query 一条样本读 metadata.city 当 description。
+        """
         collection = milvus_manager.get_collection()
         result: List[dict] = []
         for p in collection.partitions:
             if not p.name.startswith("xhs_"):
                 continue
+            desc = (getattr(p, "description", "") or "").strip()
+            # Milvus partition description 不可靠时，回退到 metadata.city
+            if not desc and p.num_entities > 0:
+                try:
+                    p.load()
+                    sample = collection.query(
+                        expr="id != ''",
+                        output_fields=["metadata"],
+                        partition_names=[p.name],
+                        limit=1,
+                    )
+                    if sample:
+                        md = sample[0].get("metadata") or {}
+                        city = (md.get("city") or "").strip()
+                        if city:
+                            desc = city
+                except Exception as e:
+                    logger.warning(f"partition '{p.name}' description fallback 失败: {e}")
             result.append({
                 "kb_name": p.name,
                 "num_entities": p.num_entities,
-                "description": getattr(p, "description", "") or "",
+                "description": desc,
             })
         return result
 

@@ -21,7 +21,8 @@ router = APIRouter()
 class RagChatRequest(BaseModel):
     Question: str = ""
     session_id: Optional[str] = "default"
-    kb_name: str = ""
+    # 可选；None / 空字符串 → 跨所有 xhs_* partition 全局检索
+    kb_name: Optional[str] = ""
     top_k: Optional[int] = None
 
 

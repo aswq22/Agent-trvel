@@ -1196,7 +1196,7 @@ class SuperBizAgentApp {
             body: JSON.stringify({
                 Question:   message,
                 session_id: this.sessionId,
-                kb_name:    this.kb.selectedName,
+                kb_name:    this.kb.selectedName || '',
             }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
