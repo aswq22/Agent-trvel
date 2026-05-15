@@ -43,7 +43,12 @@ poetry.lock
 .codebuddy/
 
 # Environment
+.env
 .env.local
+.env.*.local
+*.env
+# 本地 .env 备份不要入仓
+env_backup_*.txt
 
 # Logs
 logs/
