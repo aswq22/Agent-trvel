@@ -11,6 +11,18 @@ class SuperBizAgentApp {
         this.chatHistories = this.loadChatHistories();
         this.isCurrentChatFromHistory = false;
 
+        // XHS RAG 状态
+        this.kb = {
+            selectedName: null,
+            list: [],
+            loaded: false,
+            drawerOpen: false,
+            pendingSendAfterSelect: false,
+            pendingQuestion: '',
+        };
+        const savedKb = localStorage.getItem('xhs_selected_kb');
+        if (savedKb) this.kb.selectedName = savedKb;
+
         this.initializeElements();
         this.bindEvents();
         this.updateUI();
@@ -84,6 +96,23 @@ class SuperBizAgentApp {
         this.welcomeText = document.getElementById('welcomeText');
         this.welcomeSub = document.getElementById('welcomeSub');
         this.chatHistoryList = document.getElementById('chatHistoryList');
+        // XHS RAG DOM
+        this.kbBar              = document.getElementById('kbBar');
+        this.kbBarSelect        = document.getElementById('kbBarSelect');
+        this.kbBarSelectedName  = document.getElementById('kbBarSelectedName');
+        this.kbBarManageBtn     = document.getElementById('kbBarManageBtn');
+        this.kbDrawer           = document.getElementById('kbDrawer');
+        this.kbDrawerOverlay    = document.getElementById('kbDrawerOverlay');
+        this.kbDrawerClose      = document.getElementById('kbDrawerClose');
+        this.kbKeywordInput     = document.getElementById('kbKeywordInput');
+        this.kbCityInput        = document.getElementById('kbCityInput');
+        this.kbCountSelect      = document.getElementById('kbCountSelect');
+        this.kbIngestBtn        = document.getElementById('kbIngestBtn');
+        this.kbIngestStatus     = document.getElementById('kbIngestStatus');
+        this.kbList             = document.getElementById('kbList');
+        this.kbListCount        = document.getElementById('kbListCount');
+        this.kbEmpty            = document.getElementById('kbEmpty');
+        this.kbRefreshBtn       = document.getElementById('kbRefreshBtn');
     }
 
     // ─── Events ──────────────────────────────────────────────────────────────
@@ -141,6 +170,30 @@ class SuperBizAgentApp {
             }
         });
         if (this.fileInput) this.fileInput.addEventListener('change', e => this.handleFileSelect(e));
+        // ── XHS RAG events ──────────────────────────────────────────
+        if (this.kbBarSelect) {
+            this.kbBarSelect.addEventListener('click', () => this.openKbDrawer({ refresh: true }));
+        }
+        if (this.kbBarManageBtn) {
+            this.kbBarManageBtn.addEventListener('click', () => this.openKbDrawer({ refresh: true }));
+        }
+        if (this.kbDrawerClose) {
+            this.kbDrawerClose.addEventListener('click', () => this.closeKbDrawer());
+        }
+        if (this.kbDrawerOverlay) {
+            this.kbDrawerOverlay.addEventListener('click', () => this.closeKbDrawer());
+        }
+        if (this.kbRefreshBtn) {
+            this.kbRefreshBtn.addEventListener('click', () => this.fetchKbList());
+        }
+        // KB 列表点击委托（select / delete-prompt / delete-confirm / delete-cancel）
+        if (this.kbList) {
+            this.kbList.addEventListener('click', (e) => this.onKbListClick(e));
+        }
+        // 入库按钮
+        if (this.kbIngestBtn) {
+            this.kbIngestBtn.addEventListener('click', () => this.onIngestClick());
+        }
     }
 
     // ─── App Mode Switching ──────────────────────────────────────────────────
@@ -190,7 +243,12 @@ class SuperBizAgentApp {
         if (this.isStreaming) { this.showNotification('请等待当前对话完成后再切换', 'warning'); return; }
         this.currentMode = mode;
         this.updateUI();
-        this.showNotification(`已切换到${mode === 'quick' ? '快速' : '流式'}模式`, 'info');
+        const label = { quick: '快速', stream: '流式', rag: 'RAG · 小红书' }[mode] || mode;
+        this.showNotification(`已切换到${label}模式`, 'info');
+        // RAG 首次切入时静默拉一次列表
+        if (mode === 'rag' && !this.kb.loaded) {
+            this.fetchKbList();
+        }
     }
 
     // ─── UI Update ───────────────────────────────────────────────────────────
@@ -233,7 +291,15 @@ class SuperBizAgentApp {
 
         // 聊天子模式文字
         if (this.currentModeText && !isTravel) {
-            this.currentModeText.textContent = this.currentMode === 'quick' ? '快速' : '流式';
+            this.currentModeText.textContent =
+                { quick: '快速', stream: '流式', rag: 'RAG' }[this.currentMode] || '快速';
+        }
+
+        // XHS RAG：KB bar 显隐
+        if (this.kbBar) {
+            const showKbBar = !isTravel && this.currentMode === 'rag';
+            this.kbBar.style.display = showKbBar ? 'flex' : 'none';
+            if (showKbBar) this.refreshKbBarLabel();
         }
 
         // 下拉激活状态
@@ -420,6 +486,8 @@ class SuperBizAgentApp {
         try {
             if (this.appMode === 'travel') {
                 await this.sendTravelRequest(message);
+            } else if (this.currentMode === 'rag') {
+                await this.sendRagStream(message);
             } else if (this.currentMode === 'quick') {
                 await this.sendQuickMessage(message);
             } else {
@@ -856,6 +924,339 @@ class SuperBizAgentApp {
             n.style.animation = 'slideOut 0.3s ease';
             setTimeout(() => { if (n.parentNode) n.parentNode.removeChild(n); }, 300);
         }, 3000);
+    }
+
+    // ─── XHS RAG ────────────────────────────────────────────────────────────
+
+    refreshKbBarLabel() {
+        if (!this.kbBarSelectedName) return;
+        if (!this.kb.selectedName) {
+            this.kbBarSelectedName.textContent = '🌐 全部知识库';
+            this.kbBarSelectedName.title = '未选择具体知识库时，跨所有 xhs 分区检索';
+        } else {
+            const item = this.kb.list.find(x => x.kb_name === this.kb.selectedName);
+            const label = (item && item.description) || '(未命名)';
+            this.kbBarSelectedName.textContent = label;
+            this.kbBarSelectedName.title = this.kb.selectedName;
+        }
+        if (this.kbBar) this.kbBar.classList.remove('warn');
+    }
+
+    async fetchKbList() {
+        if (!this.kbList) return;
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/kb/list`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '加载失败');
+            this.kb.list = body.data.kbs || [];
+            this.kb.loaded = true;
+            // 失效校验：localStorage 中的 selectedName 不存在则清空
+            if (this.kb.selectedName && !this.kb.list.find(x => x.kb_name === this.kb.selectedName)) {
+                this.kb.selectedName = null;
+                localStorage.removeItem('xhs_selected_kb');
+            }
+            this.renderKbList();
+            this.refreshKbBarLabel();
+        } catch (e) {
+            this.renderKbList([], `加载失败：${e.message}`);
+        }
+    }
+
+    renderKbList(overrideList = null, emptyMsg = '') {
+        const list = overrideList || this.kb.list;
+        if (this.kbListCount) this.kbListCount.textContent = `(${list.length})`;
+        if (!this.kbList) return;
+        this.kbList.innerHTML = '';
+
+        // 列表顶部固定一项「🌐 全部知识库」，data-kb="" → selectKb(null) 走全局
+        const allItem = document.createElement('div');
+        const allActive = !this.kb.selectedName;
+        allItem.className = 'kb-item kb-item-all' + (allActive ? ' active' : '');
+        allItem.dataset.kb = '';
+        allItem.innerHTML = `
+            ${allActive ? '<span class="kb-item-active-mark"></span>' : ''}
+            <div class="kb-item-main">
+                <div class="kb-item-name">🌐 全部知识库</div>
+                <div class="kb-item-meta">跨所有 xhs 分区检索（默认）</div>
+            </div>
+        `;
+        this.kbList.appendChild(allItem);
+
+        if (!list.length) {
+            if (this.kbEmpty) {
+                this.kbEmpty.style.display = '';
+                this.kbEmpty.textContent = emptyMsg || '还没有知识库，先用上面的表单搜索一个吧';
+            }
+            return;
+        }
+        if (this.kbEmpty) this.kbEmpty.style.display = 'none';
+        for (const kb of list) {
+            const div = document.createElement('div');
+            const isActive = kb.kb_name === this.kb.selectedName;
+            div.className = 'kb-item' + (isActive ? ' active' : '');
+            div.dataset.kb = kb.kb_name;
+            const displayName = kb.description || '(未命名)';
+            const meta = `${kb.num_entities} 块 · ${kb.created_at || '—'}`;
+            div.innerHTML = `
+                ${isActive ? '<span class="kb-item-active-mark"></span>' : ''}
+                <div class="kb-item-main">
+                    <div class="kb-item-name" title="${this.escapeHtml(kb.kb_name)}">${this.escapeHtml(displayName)}</div>
+                    <div class="kb-item-meta">${this.escapeHtml(meta)}</div>
+                </div>
+                <button class="kb-item-delete" data-action="delete-prompt" title="删除" type="button">🗑</button>
+            `;
+            this.kbList.appendChild(div);
+        }
+    }
+
+    selectKb(name, closeDrawer = true) {
+        this.kb.selectedName = name;
+        if (name) localStorage.setItem('xhs_selected_kb', name);
+        else      localStorage.removeItem('xhs_selected_kb');
+        this.renderKbList();
+        this.refreshKbBarLabel();
+        if (closeDrawer) this.closeKbDrawer();
+        // 触发被无 KB 拦截的待发问题
+        if (this.kb.pendingSendAfterSelect && this.kb.pendingQuestion) {
+            const q = this.kb.pendingQuestion;
+            this.kb.pendingSendAfterSelect = false;
+            this.kb.pendingQuestion = '';
+            if (this.messageInput) this.messageInput.value = q;
+            this.sendMessage();
+        }
+    }
+
+    async openKbDrawer({ refresh = true } = {}) {
+        if (!this.kbDrawer) return;
+        this.kbDrawer.style.display          = 'flex';
+        this.kbDrawerOverlay.style.display   = 'block';
+        this.kb.drawerOpen = true;
+        if (refresh || !this.kb.loaded) {
+            await this.fetchKbList();
+        }
+    }
+
+    closeKbDrawer() {
+        if (!this.kbDrawer) return;
+        this.kbDrawer.style.display        = 'none';
+        this.kbDrawerOverlay.style.display = 'none';
+        this.kb.drawerOpen = false;
+    }
+
+    onKbListClick(e) {
+        const itemEl = e.target.closest('.kb-item');
+        if (!itemEl) return;
+        // 空 data-kb = "全部知识库" 项 → selectKb(null) 切回全局
+        const kbName = itemEl.dataset.kb || null;
+        const action = e.target.closest('[data-action]')?.dataset.action;
+
+        if (action === 'delete-prompt') {
+            e.stopPropagation();
+            this.enterDeleteConfirmMode(itemEl);
+            return;
+        }
+        if (action === 'delete-confirm') {
+            e.stopPropagation();
+            this.deleteKb(kbName);
+            return;
+        }
+        if (action === 'delete-cancel') {
+            e.stopPropagation();
+            this.renderKbList();   // 整列重渲染 = 退出确认态最简单
+            return;
+        }
+        // 默认：点空白 = 选中
+        this.selectKb(kbName);
+    }
+
+    enterDeleteConfirmMode(itemEl) {
+        // 切到 confirming 态：替换 .kb-item-delete 按钮为两个确认按钮
+        itemEl.classList.add('confirming');
+        const meta = itemEl.querySelector('.kb-item-meta');
+        if (meta) meta.textContent = '确认删除？此操作不可恢复';
+        const deleteBtn = itemEl.querySelector('.kb-item-delete');
+        if (!deleteBtn) return;
+        const actions = document.createElement('div');
+        actions.className = 'kb-item-confirm-actions';
+        actions.innerHTML = `
+            <button class="kb-item-confirm-yes" data-action="delete-confirm" type="button">删除</button>
+            <button class="kb-item-confirm-no"  data-action="delete-cancel"  type="button">取消</button>
+        `;
+        deleteBtn.replaceWith(actions);
+    }
+
+    async deleteKb(kbName) {
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/kb/${encodeURIComponent(kbName)}`, {
+                method: 'DELETE',
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '删除失败');
+            // 若删的是当前选中的 KB，清空选择
+            if (this.kb.selectedName === kbName) {
+                this.kb.selectedName = null;
+                localStorage.removeItem('xhs_selected_kb');
+            }
+            await this.fetchKbList();
+            this.showNotification('知识库已删除', 'success');
+        } catch (e) {
+            this.showNotification(`删除失败：${e.message}`, 'error');
+        }
+    }
+
+    onIngestClick() {
+        const keyword = this.kbKeywordInput ? this.kbKeywordInput.value.trim() : '';
+        const city    = this.kbCityInput    ? this.kbCityInput.value.trim()    : '';
+        const count   = this.kbCountSelect  ? parseInt(this.kbCountSelect.value, 10) : 5;
+        if (!keyword) {
+            this.setIngestStatus('请填写关键词', 'warn');
+            return;
+        }
+        this.ingestKb(keyword, city, count);
+    }
+
+    setIngestStatus(text, level) {
+        if (!this.kbIngestStatus) return;
+        this.kbIngestStatus.textContent = text;
+        this.kbIngestStatus.className = 'kb-ingest-status' + (level ? ' ' + level : '');
+    }
+
+    setIngestLoading(loading) {
+        if (!this.kbIngestBtn) return;
+        this.kbIngestBtn.disabled = loading;
+        const txt   = this.kbIngestBtn.querySelector('.kb-ingest-btn-text');
+        const ldg   = this.kbIngestBtn.querySelector('.kb-ingest-btn-loading');
+        if (txt) txt.style.display = loading ? 'none' : '';
+        if (ldg) ldg.style.display = loading ? 'inline-flex' : 'none';
+    }
+
+    async ingestKb(keyword, city, count) {
+        this.setIngestLoading(true);
+        this.setIngestStatus('', '');
+        try {
+            const resp = await fetch(`${this.apiBaseUrl}/xhs/ingest/mcp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword, city, count }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const body = await resp.json();
+            if (body.code !== 200) throw new Error(body.message || '入库失败');
+            const data = body.data || {};
+            if (!data.kb_name) {
+                this.setIngestStatus('0 条笔记，未创建知识库', 'warn');
+                return;
+            }
+            this.setIngestStatus(`✓ 已入库 ${data.ingested} 笔记 / ${data.chunks} 块`, 'ok');
+            await this.fetchKbList();
+            // 自动选中新建的 KB，但不关闭抽屉（让用户看到自己刚建的列表项）
+            this.selectKb(data.kb_name, false);
+        } catch (e) {
+            this.setIngestStatus(`✗ ${e.message}`, 'err');
+        } finally {
+            this.setIngestLoading(false);
+        }
+    }
+
+    async sendRagStream(message) {
+        const msgEl = this.addMessage('assistant', '', true);  // 流式 stub
+        let citationsEl = null;
+        let fullResponse = '';
+
+        const resp = await fetch(`${this.apiBaseUrl}/chat/rag_stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                Question:   message,
+                session_id: this.sessionId,
+                kb_name:    this.kb.selectedName,
+            }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) { this.handleStreamComplete(msgEl, fullResponse); break; }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const raw = line.slice(5).trim();
+                    if (!raw) continue;
+                    let payload;
+                    try { payload = JSON.parse(raw); } catch (_) { continue; }
+
+                    if (payload.type === 'citations') {
+                        citationsEl = this.renderCitations(msgEl, payload.data || []);
+                    } else if (payload.type === 'content') {
+                        fullResponse += payload.data || '';
+                        const mc = msgEl.querySelector('.message-content');
+                        if (mc) {
+                            mc.innerHTML = this.renderMarkdown(fullResponse);
+                            this.highlightCodeBlocks(mc);
+                        }
+                        this.scrollToBottom();
+                    } else if (payload.type === 'done') {
+                        this.handleStreamComplete(msgEl, fullResponse);
+                        return;
+                    } else if (payload.type === 'error') {
+                        const mc = msgEl.querySelector('.message-content');
+                        if (mc) mc.innerHTML = this.renderMarkdown('错误: ' + (payload.data || '未知错误'));
+                        return;
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    renderCitations(msgEl, citations) {
+        if (!msgEl || !citations || citations.length === 0) return null;
+        const wrapper = msgEl.querySelector('.message-content-wrapper');
+        if (!wrapper) return null;
+        // 避免重复插入（首个 citations 事件之后通常不会再来）
+        let det = wrapper.querySelector('.message-citations');
+        if (!det) {
+            det = document.createElement('details');
+            det.className = 'message-citations';
+            // 插到 .message-content 之前
+            const mc = wrapper.querySelector('.message-content');
+            wrapper.insertBefore(det, mc);
+        }
+        det.dataset.count = citations.length;
+        const itemsHtml = citations.map((c, i) => {
+            const title  = this.escapeHtml(c.title || '(无标题)');
+            const url    = this.escapeHtml(c.url || '#');
+            const author = this.escapeHtml(c.author || '匿名');
+            const likes  = Number(c.likes) || 0;
+            return `
+                <li>
+                    <span class="citation-idx">[${i + 1}]</span>
+                    <a href="${url}" target="_blank" rel="noopener" class="citation-link">${title}</a>
+                    <span class="citation-meta">· ${author} · ${likes} 赞</span>
+                </li>
+            `;
+        }).join('');
+        det.innerHTML = `
+            <summary class="citations-summary">
+                <span class="citations-icon">📕</span>
+                <span class="citations-text">基于 ${citations.length} 条小红书攻略</span>
+                <svg class="citations-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </summary>
+            <ul class="citations-list">${itemsHtml}</ul>
+        `;
+        return det;
     }
 }
 

@@ -1,129 +1,90 @@
-"""向量嵌入服务模块 - 基于 LangChain Embeddings 标准接口"""
+"""向量嵌入服务模块 - 本地 sentence-transformers 实现 LangChain Embeddings 接口
+
+默认模型 BAAI/bge-small-zh-v1.5：512 维、~100MB、中文质量好、CPU 推理够快。
+首次启动会从 HuggingFace 下载模型到 ~/.cache/huggingface。
+"""
 
 from typing import List
 
 from langchain_core.embeddings import Embeddings
-from openai import OpenAI
 from loguru import logger
 
-from app.config import config
 
+class LocalEmbeddings(Embeddings):
+    """本地 sentence-transformers 嵌入服务。
 
-class DashScopeEmbeddings(Embeddings):
-    """阿里云 DashScope Text Embedding (OpenAI 兼容模式)
-    
     实现 LangChain 标准 Embeddings 接口:
-    - embed_documents(texts: List[str]) → List[List[float]]: 批量嵌入文档
-    - embed_query(text: str) → List[float]: 嵌入单个查询
+    - embed_documents(texts: List[str]) -> List[List[float]]
+    - embed_query(text: str) -> List[float]
     """
 
     def __init__(
         self,
-        api_key: str,
-        model: str = "text-embedding-v4",
-        dimensions: int = 1024,
+        model_name: str = "BAAI/bge-small-zh-v1.5",
+        dimensions: int = 512,
+        normalize: bool = True,
     ):
         """
-        初始化 DashScope Embeddings
-        
         Args:
-            api_key: DashScope API Key
-            model: 嵌入模型名称
-            dimensions: 向量维度
+            model_name: HuggingFace 模型仓库名
+            dimensions: 输出向量维度（用于校验，模型本身决定真实维度）
+            normalize: 是否做 L2 归一化（bge 系列推荐 True）
         """
-        if not api_key or api_key == "your-api-key-here":
-            raise ValueError("请设置环境变量 DASHSCOPE_API_KEY")
-        
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
-        self.model = model
-        self.dimensions = dimensions
-        
-        # 打印初始化信息
-        masked_key = self._mask_api_key(api_key)
-        logger.info(
-            f"DashScope Embeddings 初始化完成 - "
-            f"模型: {model}, 维度: {dimensions}, API Key: {masked_key}"
-        )
+        # 延迟 import：避免在不需要 embedding 的子流程里强制加载 torch
+        from sentence_transformers import SentenceTransformer
 
-    @staticmethod
-    def _mask_api_key(api_key: str) -> str:
-        """掩码 API Key 用于日志"""
-        if len(api_key) > 8:
-            return f"{api_key[:8]}...{api_key[-4:]}"
-        return "***"
+        logger.info(f"加载本地 embedding 模型: {model_name} ...")
+        self._model = SentenceTransformer(model_name)
+        self.model_name = model_name
+        self.dimensions = dimensions
+        self.normalize = normalize
+        actual_dim = self._model.get_sentence_embedding_dimension()
+        logger.info(
+            f"本地 Embeddings 初始化完成 — 模型: {model_name}, "
+            f"维度: {actual_dim} (配置 {dimensions}), normalize={normalize}"
+        )
+        if actual_dim != dimensions:
+            logger.warning(
+                f"⚠ 模型实际维度 {actual_dim} 与配置 {dimensions} 不一致，"
+                "请同步更新 milvus_client.VECTOR_DIM"
+            )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """
-        批量嵌入文档列表 (LangChain 标准接口)
-        
-        Args:
-            texts: 文本列表
-            
-        Returns:
-            List[List[float]]: 嵌入向量列表
-        """
+        """批量嵌入文档列表 (LangChain 标准接口)"""
         if not texts:
             return []
-        
         try:
             logger.info(f"批量嵌入 {len(texts)} 个文档")
-            
-            # 批量调用 API
-            response = self.client.embeddings.create(
-                model=self.model,
-                input=texts,
-                dimensions=self.dimensions,
-                encoding_format="float"
+            vectors = self._model.encode(
+                texts,
+                normalize_embeddings=self.normalize,
+                show_progress_bar=False,
             )
-            
-            embeddings = [item.embedding for item in response.data]
-            logger.debug(f"批量嵌入完成, 维度: {len(embeddings[0])}")
-            
-            return embeddings
-            
+            # SentenceTransformer.encode 返回 ndarray；转 list[list[float]]
+            return [v.tolist() for v in vectors]
         except Exception as e:
             logger.error(f"批量嵌入失败: {e}")
             raise RuntimeError(f"批量嵌入失败: {e}") from e
 
     def embed_query(self, text: str) -> List[float]:
-        """
-        嵌入单个查询文本 (LangChain 标准接口)
-        
-        Args:
-            text: 查询文本
-            
-        Returns:
-            List[float]: 嵌入向量
-        """
+        """嵌入单个查询文本 (LangChain 标准接口)"""
         if not text or not text.strip():
             raise ValueError("查询文本不能为空")
-        
         try:
-            logger.debug(f"嵌入查询, 长度: {len(text)} 字符")
-            
-            response = self.client.embeddings.create(
-                model=self.model,
-                input=text,
-                dimensions=self.dimensions,
-                encoding_format="float"
+            vector = self._model.encode(
+                text,
+                normalize_embeddings=self.normalize,
+                show_progress_bar=False,
             )
-            
-            embedding = response.data[0].embedding
-            logger.debug(f"查询嵌入完成, 维度: {len(embedding)}")
-            
-            return embedding
-            
+            return vector.tolist()
         except Exception as e:
             logger.error(f"查询嵌入失败: {e}")
             raise RuntimeError(f"查询嵌入失败: {e}") from e
 
 
 # 全局单例
-vector_embedding_service = DashScopeEmbeddings(
-    api_key=config.dashscope_api_key,
-    model=config.dashscope_embedding_model,
-    dimensions=1024
+vector_embedding_service = LocalEmbeddings(
+    model_name="BAAI/bge-small-zh-v1.5",
+    dimensions=512,
+    normalize=True,
 )

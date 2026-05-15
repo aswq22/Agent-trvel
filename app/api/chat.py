@@ -1,7 +1,7 @@
 """聊天 API — 基于 LLMFactory 的简单对话接口"""
 
 import json
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.llm_factory import LLMFactory
+from app.services import session_store
 
 router = APIRouter()
 
@@ -17,9 +18,6 @@ _SYSTEM_PROMPT = (
     "你是一个智能旅游助手，也可以回答各种日常问题。"
     "请用友好、简洁的方式用中文回复用户。"
 )
-
-# 内存会话存储：{session_id: [{role, content}, ...]}
-_sessions: Dict[str, List[dict]] = {}
 
 
 class ChatRequest(BaseModel):
@@ -65,14 +63,14 @@ async def chat(request: ChatRequest):
     if not q:
         return {"code": 400, "message": "问题不能为空", "data": None}
 
-    history = _sessions.setdefault(sid, [])
+    history = session_store.get(sid)
     msgs = _build_lc_messages(history, q)
 
     try:
         response = await _make_llm().ainvoke(msgs)
         answer = response.content
-        history.append({"role": "user", "content": q})
-        history.append({"role": "assistant", "content": answer})
+        session_store.append(sid, "user", q)
+        session_store.append(sid, "assistant", answer)
         return {
             "code": 200,
             "message": "success",
@@ -91,7 +89,7 @@ async def chat(request: ChatRequest):
 async def chat_stream(request: ChatRequest):
     sid = _sid(request)
     q = _question(request)
-    history = _sessions.setdefault(sid, [])
+    history = session_store.get(sid)
     msgs = _build_lc_messages(history, q)
 
     async def generate():
@@ -103,8 +101,8 @@ async def chat_stream(request: ChatRequest):
                     full_response += content
                     payload = json.dumps({"type": "content", "data": content}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
-            history.append({"role": "user", "content": q})
-            history.append({"role": "assistant", "content": full_response})
+            session_store.append(sid, "user", q)
+            session_store.append(sid, "assistant", full_response)
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("chat_stream error: {}", repr(e))
@@ -115,12 +113,12 @@ async def chat_stream(request: ChatRequest):
 
 @router.get("/chat/session/{session_id}")
 async def get_session(session_id: str):
-    history = _sessions.get(session_id, [])
+    history = session_store.get(session_id)
     return {"history": history, "session_id": session_id, "message_count": len(history)}
 
 
 @router.post("/chat/clear")
 async def clear_session(request: ClearRequest):
     sid = request.session_id or request.sessionId
-    _sessions.pop(sid, None)
+    session_store.clear(sid)
     return {"status": "success", "message": "会话已清空"}

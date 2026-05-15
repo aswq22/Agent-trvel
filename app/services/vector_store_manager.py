@@ -1,5 +1,6 @@
 """向量存储管理器 - 封装 Milvus VectorStore 操作"""
 
+import uuid
 from typing import List
 
 from langchain_core.documents import Document
@@ -13,6 +14,10 @@ from app.services.vector_embedding_service import vector_embedding_service
 
 # 统一使用 biz collection
 COLLECTION_NAME = "biz"
+
+
+class KBNotFoundError(Exception):
+    """请求的知识库（partition）不存在。"""
 
 
 class VectorStoreManager:
@@ -147,6 +152,153 @@ class VectorStoreManager:
         except Exception as e:
             logger.error(f"相似度搜索失败: {e}")
             return []
+
+    # ── Partition operations (XHS RAG) ─────────────────────────────────
+
+    def ensure_partition(self, kb_name: str, description: str = "") -> None:
+        """幂等创建 partition。已存在则跳过。"""
+        collection = milvus_manager.get_collection()
+        if collection.has_partition(kb_name):
+            logger.debug(f"partition '{kb_name}' 已存在")
+            return
+        collection.create_partition(
+            partition_name=kb_name,
+            description=description,
+        )
+        logger.info(f"创建 partition '{kb_name}', description='{description}'")
+
+    def list_kb_partitions(self) -> List[dict]:
+        """列出所有 xhs_ 前缀的 partition。"""
+        collection = milvus_manager.get_collection()
+        result: List[dict] = []
+        for p in collection.partitions:
+            if not p.name.startswith("xhs_"):
+                continue
+            result.append({
+                "kb_name": p.name,
+                "num_entities": p.num_entities,
+                "description": getattr(p, "description", "") or "",
+            })
+        return result
+
+    def drop_kb_partition(self, kb_name: str) -> int:
+        """删除 partition；不存在返回 -1，否则返回被删向量数。"""
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            return -1
+        partition = collection.partition(kb_name)
+        n = partition.num_entities
+        try:
+            partition.release()
+        except Exception as e:
+            logger.warning(f"release partition '{kb_name}' 失败（可能未加载）: {e}")
+        collection.drop_partition(kb_name)
+        logger.info(f"删除 partition '{kb_name}', 释放 {n} 向量")
+        return n
+
+    def add_documents_to_partition(
+        self, documents: List[Document], kb_name: str,
+    ) -> List[str]:
+        """入库到指定 partition。返回生成的 id 列表。"""
+        if not documents:
+            return []
+
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            collection.create_partition(partition_name=kb_name)
+
+        # 局部 import 让测试能 patch 这条模块路径
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        texts = [d.page_content for d in documents]
+        metadatas = [d.metadata or {} for d in documents]
+        vectors = _emb.embed_documents(texts)
+        ids = [str(uuid.uuid4()) for _ in documents]
+
+        # 列式插入：与 milvus_client._create_collection 中的字段顺序一致
+        # [id (VARCHAR), vector (FLOAT_VECTOR), content (VARCHAR), metadata (JSON)]
+        collection.insert(
+            data=[ids, vectors, texts, metadatas],
+            partition_name=kb_name,
+        )
+        collection.flush()
+        logger.info(f"partition '{kb_name}' 入库 {len(ids)} 向量")
+        return ids
+
+    def similarity_search_across_kb_partitions(
+        self, query: str, k: int = 3,
+    ) -> List[Document]:
+        """跨所有 xhs_* partition 做向量检索（不污染 _default 等其他来源）。
+
+        无 xhs_ partition 时返回空列表（不抛错）。
+        """
+        collection = milvus_manager.get_collection()
+        kb_partitions = [p.name for p in collection.partitions if p.name.startswith("xhs_")]
+        if not kb_partitions:
+            return []
+
+        # 每个 partition 都 load 一遍（已加载是 no-op）
+        for name in kb_partitions:
+            try:
+                collection.partition(name).load()
+            except Exception as e:
+                logger.debug(f"partition '{name}' load: {e}")
+
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        qv = _emb.embed_query(query)
+        results = collection.search(
+            data=[qv],
+            anns_field="vector",
+            param={"metric_type": "L2", "params": {"nprobe": 16}},
+            limit=k,
+            partition_names=kb_partitions,
+            output_fields=["content", "metadata"],
+        )
+        docs: List[Document] = []
+        for hit in results[0]:
+            docs.append(Document(
+                page_content=hit.entity.get("content") or "",
+                metadata=hit.entity.get("metadata") or {},
+            ))
+        logger.debug(
+            f"跨 {len(kb_partitions)} 个 xhs_ partition 检索 query='{query[:30]}' 命中 {len(docs)}"
+        )
+        return docs
+
+    def similarity_search_in_partition(
+        self, query: str, kb_name: str, k: int = 3,
+    ) -> List[Document]:
+        """仅在指定 partition 内向量检索。"""
+        collection = milvus_manager.get_collection()
+        if not collection.has_partition(kb_name):
+            raise KBNotFoundError(f"知识库 '{kb_name}' 不存在")
+
+        # 新建 partition 默认未加载到内存，需主动 load（已加载时是 no-op）
+        try:
+            collection.partition(kb_name).load()
+        except Exception as e:
+            logger.debug(f"partition '{kb_name}' load: {e}")
+
+        from app.services.vector_embedding_service import vector_embedding_service as _emb
+
+        qv = _emb.embed_query(query)
+        results = collection.search(
+            data=[qv],
+            anns_field="vector",
+            param={"metric_type": "L2", "params": {"nprobe": 16}},
+            limit=k,
+            partition_names=[kb_name],
+            output_fields=["content", "metadata"],
+        )
+        docs: List[Document] = []
+        for hit in results[0]:
+            docs.append(Document(
+                page_content=hit.entity.get("content") or "",
+                metadata=hit.entity.get("metadata") or {},
+            ))
+        logger.debug(f"partition '{kb_name}' 检索 query='{query[:30]}' 命中 {len(docs)}")
+        return docs
 
 
 # 全局单例

@@ -10,6 +10,7 @@
 
 - 🤖 **智能对话** - LangChain 多轮对话 + 流式输出
 - 📚 **RAG 问答** - 向量检索增强，支持文档上传、自动建立向量索引、自动更新知识库
+- 📕 **小红书 RAG** - 通过 MCP 抓取小红书旅游攻略动态建立 Milvus 分区，聊天时手动切换知识库（详见末尾章节）
 - 🔧 **AIOps 诊断** - Plan-Execute-Replan 自动故障诊断和根因分析
 - 🌐 **Web 界面** - 现代化 UI，支持多种对话模式：快速问答/流式对话
 - 🔌 **MCP 集成** - 日志查询和监控数据工具接入
@@ -138,6 +139,12 @@ python -c "import requests, os, time; [requests.post('http://localhost:9900/api/
 | AIOps 诊断 | POST | `/api/aiops` | 自动故障诊断（流式） |
 | 文件上传 | POST | `/api/upload` | 上传并索引文档 |
 | 健康检查 | GET | `/api/health` | 服务状态检查 |
+| RAG 对话 | POST | `/api/chat/rag` | 基于 XHS 知识库检索后回答（阻塞） |
+| RAG 流式对话 | POST | `/api/chat/rag_stream` | 同上，SSE 流式 |
+| MCP 入库 | POST | `/api/xhs/ingest/mcp` | 调小红书 MCP 搜索 → 自动建分区入库 |
+| 文本入库 | POST | `/api/xhs/ingest/text` | 手动粘贴笔记入库 |
+| 知识库列表 | GET | `/api/xhs/kb/list` | 列出所有 xhs_ 分区 |
+| 知识库删除 | DELETE | `/api/xhs/kb/{kb_name}` | 删除指定分区 |
 
 ### 使用示例
 
@@ -253,6 +260,11 @@ MILVUS_PORT=19530
 RAG_TOP_K=3
 CHUNK_MAX_SIZE=800
 CHUNK_OVERLAP=100
+
+# 小红书 MCP / RAG
+MCP_XHS_URL=http://localhost:8013/mcp
+# XHS_COOKIE 不填则走 Mock 数据（推荐先用 Mock 跑通流程）
+XHS_COOKIE=
 ```
 
 ## 🎯 AIOps 智能运维
@@ -409,6 +421,101 @@ netstat -ano | findstr :8004  # Monitor MCP
 - [LangGraph Plan-Execute](https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/)
 - [阿里云 DashScope](https://dashscope.aliyun.com/)
 - [MCP 协议](https://modelcontextprotocol.io/)
+
+## 📕 小红书 RAG（动态知识库）
+
+把小红书旅游攻略**按需**抓进 Milvus，每次搜索建一个独立分区（KB），聊天时**手动**指定 `kb_name` 让 LLM 基于该分区检索作答。
+
+### 设计要点
+
+- **Milvus 原生 Partition 隔离**：每次入库一个 `xhs_<md5前8>_<时间戳>` 分区，互不污染
+- **手动开关**：原 `/api/chat` 不变；走 RAG 必须用 `/api/chat/rag` 或 `/api/chat/rag_stream`，且**必填 `kb_name`**
+- **Mock 模式**：不配 `XHS_COOKIE` 时 MCP 返回内置 mock 笔记（成都/北京/深圳），可直接跑通整条链路
+- **会话共享**：同一 `session_id` 在 `/chat` 与 `/chat/rag` 间历史是连续的
+
+### 启动流程（Windows / PowerShell）
+
+按顺序开 3 个 PowerShell 窗口，**每个窗口都要先激活 venv**（`.venv\Scripts\activate`）。
+
+```powershell
+# 窗口 1 — Milvus（已通过 docker compose 起好则跳过）
+docker compose -f vector-database.yml up -d
+
+# 窗口 2 — 小红书 MCP Server（端口 8013）
+python mcp_servers/xhs_server.py
+# 看到 "Uvicorn running on http://0.0.0.0:8013" 即成功
+
+# 窗口 3 — FastAPI 主服务（端口 9900）
+python -m uvicorn app.main:app --host 0.0.0.0 --port 9900
+# 看到 collection 'biz' 已加载 即成功
+```
+
+启动好后访问 http://localhost:9900/docs，在 **"小红书 RAG"** 与 **"RAG 对话"** 两个 tag 下能看到全部新接口。
+
+### 端到端冒烟测试（curl）
+
+```powershell
+# 1. 用 MCP 搜索"成都美食"，自动建分区并入库
+curl.exe -X POST http://localhost:9900/api/xhs/ingest/mcp `
+  -H "Content-Type: application/json" `
+  -d '{\"keyword\":\"美食\",\"city\":\"成都\",\"count\":5}'
+# 返回里记下 data.kb_name —— 后面要用
+
+# 2. 看看现在有哪些知识库
+curl.exe http://localhost:9900/api/xhs/kb/list
+
+# 3. 用上一步的 kb_name 做 RAG 对话
+curl.exe -X POST http://localhost:9900/api/chat/rag `
+  -H "Content-Type: application/json" `
+  -d '{\"Question\":\"成都必吃美食推荐\",\"session_id\":\"smoke-1\",\"kb_name\":\"<填这里>\"}'
+# 返回的 answer 应该出现"郫县豆瓣鱼/夫妻肺片"等 mock 数据里的内容
+# 同时 citations 字段会带笔记 title/url/author/likes
+
+# 4. SSE 流式版（看实时打字效果）
+curl.exe -N -X POST http://localhost:9900/api/chat/rag_stream `
+  -H "Content-Type: application/json" `
+  -d '{\"Question\":\"成都3日游怎么安排\",\"session_id\":\"smoke-2\",\"kb_name\":\"<填这里>\"}'
+
+# 5. 不再需要时删掉知识库
+curl.exe -X DELETE http://localhost:9900/api/xhs/kb/<填 kb_name>
+```
+
+### kb_name 规则
+
+- 自动生成：`xhs_<md5(keyword|city)前8位>_<YYYYMMDD>_<HHMMSS>`
+- 手动入库 `/xhs/ingest/text` 可传自定义 `kb_name`，**必须**匹配 `^xhs_[a-zA-Z0-9_]{1,240}$`，否则 400
+- 不传则默认 `xhs_manual_<时间戳>`
+
+### 切换到真实抓取
+
+默认是 Mock 模式，足够把流程跑通。要切真实抓取：
+
+1. 浏览器登录 https://www.xiaohongshu.com ，打开开发者工具复制完整 Cookie
+2. 把 Cookie 写入 `.env` 的 `XHS_COOKIE=...`
+3. 重启窗口 2（`xhs_server.py`）
+4. 之后调 `/xhs/ingest/mcp` 时 response 的 `source` 字段会是 `"realtime"` 而非 `"mock"`
+
+> ⚠️ 小红书有反爬，Cookie 可能几小时就失效；接口风格也可能变。Mock 模式始终可用。
+
+### 故障排查
+
+| 症状 | 原因 / 处理 |
+|---|---|
+| `/xhs/ingest/mcp` 返回 `MCP 连接失败` | 窗口 2 没起，或端口 8013 被占 |
+| `/chat/rag` 返 404 | `kb_name` 不存在 —— 先调 `/xhs/kb/list` 看真实分区名 |
+| `/chat/rag` 返 400 `kb_name 必填` | 请求体里漏了 `kb_name` 字段 |
+| LLM 输出"以下为通用建议" | 该分区没检索到相关内容，是设计预期（不报错） |
+| 真实模式下没结果 | XHS_COOKIE 过期或被风控，回到 Mock 模式调试 |
+
+### 自动化测试
+
+```powershell
+# 全量单元测试（不需要 Milvus）
+python -m pytest tests/ -v --no-cov
+
+# Milvus 集成测试（需要 Milvus 在 19530 跑着）
+$env:RUN_MILVUS_TESTS="1"; python -m pytest tests/services/test_vector_store_partition_integration.py -v --no-cov
+```
 
 ## 📄 许可证
 author： chief

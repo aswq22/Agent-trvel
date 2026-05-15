@@ -1,0 +1,140 @@
+"""小红书笔记入库管道：MCP 搜索 → 分块 → 向量化 → Milvus partition"""
+
+import hashlib
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from loguru import logger
+
+from app.config import config
+from app.services.vector_store_manager import vector_store_manager
+
+
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=config.chunk_max_size,
+    chunk_overlap=config.chunk_overlap,
+)
+
+
+def _make_kb_name(city: str) -> str:
+    """按 city 分库：同 city 永远映射到同一个 partition。
+
+    - city 为空 → 固定常量 'xhs_global'
+    - city 非空 → 'xhs_<md5(city)[:8]>'（确定性，方便同 city 多次入库追加）
+    """
+    if not city or not city.strip():
+        return "xhs_global"
+    short = hashlib.md5(city.strip().encode("utf-8")).hexdigest()[:8]
+    return f"xhs_{short}"
+
+
+def _note_to_docs(note: dict) -> List[Document]:
+    """将一条 XHS 笔记拆分为 LangChain Document 列表"""
+    full_text = f"【{note.get('title', '')}】\n{note.get('content', '')}"
+    chunks = _splitter.split_text(full_text)
+    docs = []
+    for i, chunk in enumerate(chunks):
+        docs.append(Document(
+            page_content=chunk,
+            metadata={
+                "_source": note.get("url", "xhs"),
+                "_file_name": note.get("title", "xhs_note"),
+                "note_id": note.get("note_id", ""),
+                "city": note.get("city", ""),
+                "tags": ",".join(note.get("tags", [])),
+                "author": note.get("author", ""),
+                "likes": note.get("likes", 0),
+                "chunk_index": i,
+                "source_type": "xhs",
+            },
+        ))
+    return docs
+
+
+async def _fetch_notes_from_mcp(keyword: str, city: str, count: int) -> List[dict]:
+    """通过 XHS MCP 搜索笔记。
+
+    fastmcp >=2 的 call_tool 返回 CallToolResult（dataclass），含 .data /
+    .content / .is_error。优先用 .data（已自动反序列化）；老版本 fallback
+    走 .content[0].text 解析。
+    """
+    from fastmcp import Client
+    import json
+
+    async with Client(config.mcp_xhs_url) as client:
+        result = await client.call_tool(
+            "xhs_search_notes",
+            {"keyword": keyword, "city": city, "count": count},
+        )
+
+    # 新 API：result.data 已是 dict
+    data = getattr(result, "data", None)
+    if data is None:
+        # 退而求其次：从 content 文本块解析 JSON
+        content = getattr(result, "content", None) or result
+        if content:
+            data = json.loads(content[0].text)
+        else:
+            data = {}
+    return data.get("notes", [])
+
+
+def ingest_notes(
+    notes: List[dict],
+    kb_name: str,
+    description: str = "",
+) -> Dict[str, Any]:
+    """将笔记列表入库到指定 partition，返回入库统计。"""
+    if not notes:
+        return {"ingested": 0, "chunks": 0}
+
+    all_docs: List[Document] = []
+    for note in notes:
+        all_docs.extend(_note_to_docs(note))
+    if not all_docs:
+        return {"ingested": 0, "chunks": 0}
+
+    vector_store_manager.ensure_partition(kb_name, description=description)
+    ids = vector_store_manager.add_documents_to_partition(all_docs, kb_name)
+    logger.info(f"XHS 入库完成 partition='{kb_name}': {len(notes)} 笔记 → {len(ids)} 块")
+    return {"ingested": len(notes), "chunks": len(ids)}
+
+
+async def ingest_from_mcp(
+    keyword: str, city: str = "", count: int = 10,
+) -> Dict[str, Any]:
+    """从 XHS MCP 搜索并入库。0 笔记时不创建 partition，kb_name 返 None。"""
+    logger.info(f"XHS MCP 搜索入库: keyword={keyword}, city={city}, count={count}")
+    notes = await _fetch_notes_from_mcp(keyword, city, count)
+    if not notes:
+        return {"kb_name": None, "ingested": 0, "chunks": 0,
+                "keyword": keyword, "city": city}
+
+    kb_name = _make_kb_name(city)
+    description = city.strip() if city and city.strip() else "全部地区"
+    result = ingest_notes(notes, kb_name=kb_name, description=description)
+    return {"kb_name": kb_name, **result, "keyword": keyword, "city": city}
+
+
+def ingest_raw_text(
+    title: str, content: str, city: str = "", tags: Optional[list] = None,
+    kb_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """直接入库手动粘贴的 XHS 内容。kb_name 不传时默认 xhs_manual_<ts>。"""
+    note = {
+        "note_id": hashlib.md5(content.encode()).hexdigest()[:12],
+        "title": title,
+        "content": content,
+        "city": city,
+        "tags": tags or [],
+        "author": "manual",
+        "url": "manual",
+        "likes": 0,
+    }
+    if not kb_name:
+        kb_name = _make_kb_name(city)
+    description = city.strip() if city and city.strip() else "手动入库"
+    result = ingest_notes([note], kb_name=kb_name, description=description)
+    return {"kb_name": kb_name, **result}

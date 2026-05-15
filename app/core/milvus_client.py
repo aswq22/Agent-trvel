@@ -46,7 +46,7 @@ class MilvusClientManager:
 
     # 常量定义
     COLLECTION_NAME: str = "biz"
-    VECTOR_DIM: int = 1024  # 统一使用 1024 维
+    VECTOR_DIM: int = 512  # BAAI/bge-small-zh-v1.5 本地 embedding 维度
     ID_MAX_LENGTH: int = 100
     CONTENT_MAX_LENGTH: int = 8000
     DEFAULT_SHARD_NUMBER: int = 2
